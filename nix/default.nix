@@ -20,6 +20,8 @@
 , spagoPackages ? "${src}/spago-packages.nix"
   # Configuration that will be used to generate a `devShell` for the project
 , shell ? { }
+  # Paths to submodule locations that need to be copied when constructing the NodeJS environment
+, submodules ? [ ]
 , ...
 }:
 let
@@ -38,6 +40,13 @@ let
       cd $out
       cp ${packageLock} ./package-lock.json
       cp ${packageJson} ./package.json
+      ${pkgs.lib.optionalString (builtins.length submodules != 0) "cp ${
+        pkgs.linkFarm "node-packages-${projectName}-source"
+          (builtins.map (path: {
+            inherit path;
+            name = builtins.baseNameOf (builtins.toString path);
+          }) submodules)
+      }/* . -r"}
       node2nix ${pkgs.lib.optionalString withDevDeps "--development" } \
         --lock ./package-lock.json -i ./package.json
     '')
