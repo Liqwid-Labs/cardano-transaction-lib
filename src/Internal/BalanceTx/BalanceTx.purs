@@ -114,7 +114,10 @@ import Ctl.Internal.CoinSelection.UtxoIndex (UtxoIndex, buildUtxoIndex)
 import Ctl.Internal.Contract (getProtocolParameters)
 import Ctl.Internal.Contract.Monad (Contract, filterLockedUtxos)
 import Ctl.Internal.Contract.QueryHandle (getQueryHandle)
-import Ctl.Internal.Contract.Wallet (getChangeAddress, getWalletAddresses) as Contract.Wallet
+import Ctl.Internal.Contract.Wallet 
+  ( getChangeAddress
+  , getWalletUtxos
+  ) as Contract.Wallet
 import Ctl.Internal.Contract.Wallet (getWalletCollateral)
 import Ctl.Internal.Helpers ((??))
 import Ctl.Internal.Partition (equipartition, partition)
@@ -167,7 +170,6 @@ balanceTxWithConstraints
   -> Contract (Either BalanceTxError FinalizedTransaction)
 balanceTxWithConstraints unbalancedTx constraintsBuilder = do
   pparams <- getProtocolParameters
-  queryHandle <- getQueryHandle
 
   withBalanceTxConstraints constraintsBuilder $ runExceptT do
     let
@@ -175,16 +177,28 @@ balanceTxWithConstraints unbalancedTx constraintsBuilder = do
       certsFee = getStakingBalance (unbalancedTx ^. _transaction')
         depositValuePerCert
 
-    srcAddrs <-
-      asksConstraints Constraints._srcAddresses
-        >>= maybe (liftContract Contract.Wallet.getWalletAddresses) pure
-
     changeAddr <- getChangeAddress
 
-    utxos <- liftEitherContract $
-      parTraverse (queryHandle.utxosAt >>> liftAff >>> map hush) srcAddrs <#>
-        traverse (note CouldNotGetUtxos)
-          >>> map (foldr Map.union Map.empty) -- merge all utxos into one map
+    mbSrcAddrs <- asksConstraints Constraints._srcAddresses
+
+    utxos <- liftEitherContract do
+      case mbSrcAddrs of
+        -- Use wallet UTxOs.
+        Nothing -> do
+          note CouldNotGetUtxos <$> do
+            Contract.Wallet.getWalletUtxos
+        -- Use UTxOs from source addresses
+        Just srcAddrs -> do
+          queryHandle <- getQueryHandle
+          -- Even though some of the addresses may be controlled by the wallet,
+          -- we can't query the wallet for available UTxOs, because there's no
+          -- way to tell it to return UTxOs only from specific subset of the
+          -- addresses controlled by a CIP-30 wallet.
+          -- `utxosAt` calls are expensive when there are a lot of addresses to
+          -- check.
+          parTraverse (queryHandle.utxosAt >>> liftAff >>> map hush) srcAddrs
+            <#> traverse (note CouldNotGetUtxos)
+              >>> map (foldr Map.union Map.empty) -- merge all utxos into one map
 
     unbalancedCollTx <-
       case Array.null (unbalancedTx ^. _redeemersTxIns) of
