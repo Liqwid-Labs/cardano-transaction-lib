@@ -38,8 +38,9 @@ let
       } ''
       mkdir $out
       cd $out
-      cp ${packageLock} ./package-lock.json
-      cp ${packageJson} ./package.json
+      cp ${src}/* . -r
+      cp ${packageLock} ./package-lock.json -f
+      cp ${packageJson} ./package.json -f
       ${pkgs.lib.optionalString (builtins.length submodules != 0) "cp ${
         pkgs.linkFarm "node-packages-${projectName}-source"
           (builtins.map (path: {
