@@ -136,12 +136,7 @@ evalExUnitsAndMinFee (PrebalancedTransaction unattachedTx) allUtxos = do
   FinalizedTransaction finalizedTx <-
     finalizeTransaction reindexedUnattachedTxWithExUnits allUtxos
   -- Calculate the minimum fee for a transaction:
-  networkId <- askNetworkId
-  additionalUtxos <-
-    fromPlutusUtxoMap networkId
-      <$> asksConstraints Constraints._additionalUtxos
-  minFee <- liftContract $ Contract.MinFee.calculateMinFee finalizedTx
-    additionalUtxos
+  minFee <- liftContract $ Contract.MinFee.calculateMinFee finalizedTx allUtxos
   pure $ reindexedUnattachedTxWithExUnits /\ unwrap minFee
 
 -- | Attaches datums and redeemers, sets the script integrity hash,

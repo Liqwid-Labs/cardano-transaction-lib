@@ -114,7 +114,7 @@ import Ctl.Internal.CoinSelection.UtxoIndex (UtxoIndex, buildUtxoIndex)
 import Ctl.Internal.Contract (getProtocolParameters)
 import Ctl.Internal.Contract.Monad (Contract, filterLockedUtxos)
 import Ctl.Internal.Contract.QueryHandle (getQueryHandle)
-import Ctl.Internal.Contract.Wallet 
+import Ctl.Internal.Contract.Wallet
   ( getChangeAddress
   , getWalletUtxos
   ) as Contract.Wallet
