@@ -43,7 +43,7 @@ import Data.Set as Set
 calculateMinFee :: Transaction -> UtxoMap -> Contract Coin
 calculateMinFee tx allUtxos = do
   pparams <- getProtocolParameters
-  -- FIXME: figure out why `1 +` is needed here
+  -- FIXME: figure out why `1 +` is needed here (collateral?)
   calculateMinFeeCsl
     pparams
     (1 + nInputKeys + nWithdrawalKeys + nCertificateKeys)
