@@ -96,6 +96,8 @@ import Ctl.Internal.Cardano.Types.Transaction
   , _withdrawals
   , _witnessSet
   )
+import Ctl.Internal.Cardano.Types.TransactionUnspentOutput
+  (TransactionUnspentOutput(..))
 import Ctl.Internal.Cardano.Types.Value
   ( AssetClass
   , Coin(Coin)
@@ -129,6 +131,7 @@ import Ctl.Internal.Types.Scripts
   ( Language(PlutusV1)
   , PlutusScript(PlutusScript)
   )
+import Ctl.Internal.Types.Transaction (TransactionInput)
 import Ctl.Internal.Types.UnbalancedTransaction (_utxoIndex)
 import Data.Array as Array
 import Data.Array.NonEmpty (NonEmptyArray)
@@ -145,6 +148,7 @@ import Data.Array.NonEmpty
   ) as NEArray
 import Data.Array.NonEmpty as NEA
 import Data.BigInt (BigInt)
+import Data.BigInt as BigInt
 import Data.Either (Either, hush, note)
 import Data.Foldable (fold, foldMap, foldr, length, null, sum)
 import Data.Function (on)
@@ -152,13 +156,14 @@ import Data.Lens.Getter ((^.))
 import Data.Lens.Setter ((%~), (.~), (?~))
 import Data.Log.Tag (TagSet)
 import Data.Log.Tag (fromArray, tag) as TagSet
-import Data.Map (empty, insert, lookup, toUnfoldable, union) as Map
+import Data.Map (empty, insert, lookup, toUnfoldable, union, member) as Map
 import Data.Maybe (Maybe(Just, Nothing), fromMaybe, isJust, maybe)
 import Data.Newtype (class Newtype, unwrap, wrap)
 import Data.Set as Set
 import Data.Traversable (for, traverse)
 import Data.Tuple (fst)
 import Data.Tuple.Nested (type (/\), (/\))
+import Data.UInt as UInt
 import Effect.Aff.Class (liftAff)
 import Effect.Class (liftEffect)
 
@@ -173,6 +178,7 @@ balanceTxWithConstraints unbalancedTx constraintsBuilder = do
 
   withBalanceTxConstraints constraintsBuilder $ runExceptT do
     let
+      maxCollateralInputs = UInt.toInt (unwrap pparams).maxCollateralInputs
       depositValuePerCert = (unwrap pparams).stakeAddressDeposit
       certsFee = getStakingBalance (unbalancedTx ^. _transaction')
         depositValuePerCert
@@ -206,7 +212,8 @@ balanceTxWithConstraints unbalancedTx constraintsBuilder = do
           -- Don't set collateral if tx doesn't contain phase-2 scripts:
           unbalancedTxWithNetworkId
         false ->
-          setTransactionCollateral changeAddr =<< unbalancedTxWithNetworkId
+          setTransactionCollateral maxCollateralInputs utxos changeAddr =<<
+            unbalancedTxWithNetworkId
     let
       allUtxos :: UtxoMap
       allUtxos =
@@ -240,12 +247,42 @@ balanceTxWithConstraints unbalancedTx constraintsBuilder = do
     networkId <- maybe askNetworkId pure (transaction ^. _body <<< _networkId)
     pure (transaction # _body <<< _networkId ?~ networkId)
 
-  setTransactionCollateral :: Address -> Transaction -> BalanceTxM Transaction
-  setTransactionCollateral changeAddr transaction = do
+  setTransactionCollateral
+    :: Int
+    -> UtxoMap
+    -> Address
+    -> Transaction
+    -> BalanceTxM Transaction
+  setTransactionCollateral maxCollateralInputs walletUtxos changeAddr transaction = do
     collateral <-
-      liftEitherContract $ note CouldNotGetCollateral <$> getWalletCollateral
+      if sum (unspentOutputToCoin <$> mostAda) > BigInt.fromInt 5_000_000
+      then pure mostAda
+      else liftEitherContract $ note CouldNotGetCollateral <$> getWalletCollateral
     let collaterisedTx = addTxCollateral collateral transaction
     addTxCollateralReturn collateral collaterisedTx changeAddr
+    where
+      mostAda :: Array TransactionUnspentOutput
+      mostAda =
+        Array.take maxCollateralInputs $
+          Array.sortBy (compare `on` unspentOutputToCoin) spentUtxos 
+
+      unspentOutputToCoin :: TransactionUnspentOutput -> BigInt
+      unspentOutputToCoin =
+        unwrap >>> _.output >>> unwrap >>> _.amount >>> valueToCoin'
+
+      spentUtxos :: Array TransactionUnspentOutput
+      spentUtxos = 
+        Array.mapMaybe (\input ->
+          case Map.lookup input walletUtxos of
+            Just output -> Just $ TransactionUnspentOutput { input , output }
+            Nothing -> Nothing
+        ) spentInputs
+
+      spentInputs :: Array TransactionInput
+      spentInputs = 
+        Array.filter
+          (flip Map.member walletUtxos)
+          (Array.fromFoldable $ transaction ^. _body <<< _inputs)
 
 --------------------------------------------------------------------------------
 -- Balancing Algorithm
