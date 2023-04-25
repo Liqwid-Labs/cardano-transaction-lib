@@ -97,7 +97,8 @@ import Ctl.Internal.Cardano.Types.Transaction
   , _witnessSet
   )
 import Ctl.Internal.Cardano.Types.TransactionUnspentOutput
-  (TransactionUnspentOutput(..))
+  ( TransactionUnspentOutput(..)
+  )
 import Ctl.Internal.Cardano.Types.Value
   ( AssetClass
   , Coin(Coin)
@@ -116,10 +117,7 @@ import Ctl.Internal.CoinSelection.UtxoIndex (UtxoIndex, buildUtxoIndex)
 import Ctl.Internal.Contract (getProtocolParameters)
 import Ctl.Internal.Contract.Monad (Contract, filterLockedUtxos)
 import Ctl.Internal.Contract.QueryHandle (getQueryHandle)
-import Ctl.Internal.Contract.Wallet
-  ( getChangeAddress
-  , getWalletUtxos
-  ) as Contract.Wallet
+import Ctl.Internal.Contract.Wallet (getChangeAddress, getWalletUtxos) as Contract.Wallet
 import Ctl.Internal.Contract.Wallet (getWalletCollateral)
 import Ctl.Internal.Helpers ((??))
 import Ctl.Internal.Partition (equipartition, partition)
@@ -132,7 +130,7 @@ import Ctl.Internal.Types.Scripts
   , PlutusScript(PlutusScript)
   )
 import Ctl.Internal.Types.Transaction (TransactionInput)
-import Ctl.Internal.Types.UnbalancedTransaction (_utxoIndex)
+import Ctl.Internal.Types.UnbalancedTransaction (_transaction, _utxoIndex)
 import Data.Array as Array
 import Data.Array.NonEmpty (NonEmptyArray)
 import Data.Array.NonEmpty
@@ -156,9 +154,10 @@ import Data.Lens.Getter ((^.))
 import Data.Lens.Setter ((%~), (.~), (?~))
 import Data.Log.Tag (TagSet)
 import Data.Log.Tag (fromArray, tag) as TagSet
-import Data.Map (empty, insert, lookup, toUnfoldable, union, member) as Map
+import Data.Map (empty, insert, lookup, toUnfoldable, union) as Map
 import Data.Maybe (Maybe(Just, Nothing), fromMaybe, isJust, maybe)
 import Data.Newtype (class Newtype, unwrap, wrap)
+import Data.Set (Set)
 import Data.Set as Set
 import Data.Traversable (for, traverse)
 import Data.Tuple (fst)
@@ -206,14 +205,6 @@ balanceTxWithConstraints unbalancedTx constraintsBuilder = do
             <#> traverse (note CouldNotGetUtxos)
               >>> map (foldr Map.union Map.empty) -- merge all utxos into one map
 
-    unbalancedCollTx <-
-      case Array.null (unbalancedTx ^. _redeemersTxIns) of
-        true ->
-          -- Don't set collateral if tx doesn't contain phase-2 scripts:
-          unbalancedTxWithNetworkId
-        false ->
-          setTransactionCollateral maxCollateralInputs utxos changeAddr =<<
-            unbalancedTxWithNetworkId
     let
       allUtxos :: UtxoMap
       allUtxos =
@@ -225,14 +216,17 @@ balanceTxWithConstraints unbalancedTx constraintsBuilder = do
 
     selectionStrategy <- asksConstraints Constraints._selectionStrategy
 
+    unbalancedTxWithNetworkId' <- unbalancedTxWithNetworkId
     -- Balance and finalize the transaction:
     runBalancer
       { strategy: selectionStrategy
-      , unbalancedTx: unbalancedTx # _transaction' .~ unbalancedCollTx
+      , unbalancedTx: unbalancedTx # _transaction' .~ unbalancedTxWithNetworkId'
       , changeAddress: changeAddr
       , allUtxos
       , utxos: availableUtxos
       , certsFee
+      , maxCollateralInputs
+      , walletUtxos: utxos
       }
   where
   getChangeAddress :: BalanceTxM Address
@@ -247,43 +241,6 @@ balanceTxWithConstraints unbalancedTx constraintsBuilder = do
     networkId <- maybe askNetworkId pure (transaction ^. _body <<< _networkId)
     pure (transaction # _body <<< _networkId ?~ networkId)
 
-  setTransactionCollateral
-    :: Int
-    -> UtxoMap
-    -> Address
-    -> Transaction
-    -> BalanceTxM Transaction
-  setTransactionCollateral maxCollateralInputs walletUtxos changeAddr transaction = do
-    collateral <-
-      if sum (unspentOutputToCoin <$> mostAda) > BigInt.fromInt 5_000_000
-      then pure mostAda
-      else liftEitherContract $ note CouldNotGetCollateral <$> getWalletCollateral
-    let collaterisedTx = addTxCollateral collateral transaction
-    addTxCollateralReturn collateral collaterisedTx changeAddr
-    where
-      mostAda :: Array TransactionUnspentOutput
-      mostAda =
-        Array.take maxCollateralInputs $
-          Array.sortBy (compare `on` unspentOutputToCoin) spentUtxos 
-
-      unspentOutputToCoin :: TransactionUnspentOutput -> BigInt
-      unspentOutputToCoin =
-        unwrap >>> _.output >>> unwrap >>> _.amount >>> valueToCoin'
-
-      spentUtxos :: Array TransactionUnspentOutput
-      spentUtxos = 
-        Array.mapMaybe (\input ->
-          case Map.lookup input walletUtxos of
-            Just output -> Just $ TransactionUnspentOutput { input , output }
-            Nothing -> Nothing
-        ) spentInputs
-
-      spentInputs :: Array TransactionInput
-      spentInputs = 
-        Array.filter
-          (flip Map.member walletUtxos)
-          (Array.fromFoldable $ transaction ^. _body <<< _inputs)
-
 --------------------------------------------------------------------------------
 -- Balancing Algorithm
 --------------------------------------------------------------------------------
@@ -295,6 +252,8 @@ type BalancerParams =
   , allUtxos :: UtxoMap
   , utxos :: UtxoMap
   , certsFee :: Coin
+  , maxCollateralInputs :: Int
+  , walletUtxos :: UtxoMap
   }
 
 type BalancerState =
@@ -445,14 +404,22 @@ runBalancer p = do
     -- | utxo set so that the total input value is sufficient to cover all
     -- | transaction outputs, including generated change and min fee.
     prebalanceTx :: BalancerState -> BalanceTxM BalancerState
-    prebalanceTx state@{ transaction, changeOutputs, leftoverUtxos } =
-      performCoinSelection <#> \selectionState -> state
-        { transaction =
-            transaction # _body' <<< _inputs %~
-              Set.union (selectedInputs selectionState)
-        , leftoverUtxos =
-            selectionState ^. _leftoverUtxos
-        }
+    prebalanceTx state@{ transaction, changeOutputs, leftoverUtxos } = do
+      performCoinSelection >>= \selectionState -> do
+        unbalancedCollTx <-
+          case Array.null (transaction ^. _redeemersTxIns) of
+            true ->
+              -- Don't set collateral if tx doesn't contain phase-2 scripts:
+              pure transaction
+            false -> setTransactionCollateral transaction
+              (selectedInputs selectionState)
+        pure $ state
+          { transaction =
+              unbalancedCollTx # _body' <<< _inputs %~
+                Set.union (selectedInputs selectionState)
+          , leftoverUtxos =
+              selectionState ^. _leftoverUtxos
+          }
       where
       performCoinSelection :: BalanceTxM SelectionState
       performCoinSelection =
@@ -477,6 +444,47 @@ runBalancer p = do
 
       transaction' /\ minFee <- evalExUnitsAndMinFee prebalancedTx p.allUtxos
       pure $ state { transaction = transaction', minFee = minFee }
+
+    setTransactionCollateral
+      :: UnattachedUnbalancedTx
+      -> Set TransactionInput
+      -> BalanceTxM UnattachedUnbalancedTx
+    setTransactionCollateral transaction selectedInputs = do
+      collateral <-
+        if sum (unspentOutputToCoin <$> mostAda) >= BigInt.fromInt 3_000_000 then
+          pure mostAda
+        else liftEitherContract $ note CouldNotGetCollateral <$>
+          getWalletCollateral
+      let collaterisedTx = addTxCollateral collateral transaction'
+      txWithCollateral <- addTxCollateralReturn collateral collaterisedTx
+        p.changeAddress
+      pure $ transaction # _unbalancedTx <<< _transaction .~ txWithCollateral
+      where
+      mostAda :: Array TransactionUnspentOutput
+      mostAda =
+        Array.take p.maxCollateralInputs $
+          Array.sortBy (compare `on` unspentOutputToCoin) spentUtxos
+
+      unspentOutputToCoin :: TransactionUnspentOutput -> BigInt
+      unspentOutputToCoin =
+        unwrap >>> _.output >>> unwrap >>> _.amount >>> valueToCoin'
+
+      spentUtxos :: Array TransactionUnspentOutput
+      spentUtxos =
+        Array.mapMaybe
+          ( \input ->
+              case Map.lookup input p.walletUtxos of
+                Just output -> Just $ TransactionUnspentOutput { input, output }
+                Nothing -> Nothing
+          )
+          spentInputs
+
+      spentInputs :: Array TransactionInput
+      spentInputs = Array.fromFoldable selectedInputs
+
+      transaction' :: Transaction
+      transaction' = transaction # unwrap # _.unbalancedTx # unwrap #
+        _.transaction
 
 -- | For each transaction output, if necessary, adds some number of lovelaces
 -- | to cover the utxo min-ada-value requirement.

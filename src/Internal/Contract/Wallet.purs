@@ -134,16 +134,18 @@ getWalletCollateral :: Contract (Maybe (Array TransactionUnspentOutput))
 getWalletCollateral = do
   { maxCollateralInputs, coinsPerUtxoUnit } <- unwrap <$> getProtocolParameters
   mbCollateralUTxOs <- getWallet >>= maybe (pure Nothing) \wallet -> do
-    actionBasedOnWallet _.getUtxos (\kw -> do
-      queryHandle <- getQueryHandle
-      networkId <- asks _.networkId
-      let addr = (unwrap kw).address networkId
-      utxos <- (liftAff $ queryHandle.utxosAt addr)
-        <#> hush >>> fromMaybe Map.empty
-        >>= filterLockedUtxos
-      liftEffect $ (unwrap kw).selectCollateral coinsPerUtxoUnit
-        (UInt.toInt maxCollateralInputs)
-        utxos)
+    actionBasedOnWallet _.getCollateral
+      ( \kw -> do
+          queryHandle <- getQueryHandle
+          networkId <- asks _.networkId
+          let addr = (unwrap kw).address networkId
+          utxos <- (liftAff $ queryHandle.utxosAt addr)
+            <#> hush >>> fromMaybe Map.empty
+            >>= filterLockedUtxos
+          liftEffect $ (unwrap kw).selectCollateral coinsPerUtxoUnit
+            (UInt.toInt maxCollateralInputs)
+            utxos
+      )
       wallet
 
   let
