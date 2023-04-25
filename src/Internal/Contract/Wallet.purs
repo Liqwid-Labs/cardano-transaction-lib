@@ -133,20 +133,17 @@ withWallet act = do
 getWalletCollateral :: Contract (Maybe (Array TransactionUnspentOutput))
 getWalletCollateral = do
   { maxCollateralInputs, coinsPerUtxoUnit } <- unwrap <$> getProtocolParameters
-  mbCollateralUTxOs <- getWallet >>= maybe (pure Nothing) \wallet -> do
-    actionBasedOnWallet _.getCollateral
-      ( \kw -> do
-          queryHandle <- getQueryHandle
-          networkId <- asks _.networkId
-          let addr = (unwrap kw).address networkId
-          utxos <- (liftAff $ queryHandle.utxosAt addr)
-            <#> hush >>> fromMaybe Map.empty
-            >>= filterLockedUtxos
-          liftEffect $ (unwrap kw).selectCollateral coinsPerUtxoUnit
-            (UInt.toInt maxCollateralInputs)
-            utxos
-      )
-      wallet
+  mbCollateralUTxOs <- getWallet >>= maybe (pure Nothing) do
+    actionBasedOnWallet _.getCollateral \kw -> do
+      queryHandle <- getQueryHandle
+      networkId <- asks _.networkId
+      let addr = (unwrap kw).address networkId
+      utxos <- (liftAff $ queryHandle.utxosAt addr)
+        <#> hush >>> fromMaybe Map.empty
+        >>= filterLockedUtxos
+      liftEffect $ (unwrap kw).selectCollateral coinsPerUtxoUnit
+        (UInt.toInt maxCollateralInputs)
+        utxos
 
   let
     {- This is a workaround for the case where Eternl wallet,
