@@ -38,7 +38,6 @@ let
       } ''
       mkdir $out
       cd $out
-      cp ${src}/* . -r
       cp ${packageLock} ./package-lock.json -f
       cp ${packageJson} ./package.json -f
       ${pkgs.lib.optionalString (builtins.length submodules != 0) "cp ${
