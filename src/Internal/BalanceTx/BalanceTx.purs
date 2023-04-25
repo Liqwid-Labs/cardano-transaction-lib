@@ -451,7 +451,7 @@ runBalancer p = do
       -> BalanceTxM UnattachedUnbalancedTx
     setTransactionCollateral transaction selectedInputs = do
       collateral <-
-        if sum (unspentOutputToCoin <$> mostAda) >= BigInt.fromInt 3_000_000 then
+        if sum (unspentOutputToCoin <$> mostAda) >= BigInt.fromInt 5_000_000 then
           pure mostAda
         else liftEitherContract $ note CouldNotGetCollateral <$>
           getWalletCollateral
