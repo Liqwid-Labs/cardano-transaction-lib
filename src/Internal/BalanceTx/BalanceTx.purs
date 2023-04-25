@@ -97,7 +97,7 @@ import Ctl.Internal.Cardano.Types.Transaction
   , _witnessSet
   )
 import Ctl.Internal.Cardano.Types.TransactionUnspentOutput
-  ( TransactionUnspentOutput(..)
+  ( TransactionUnspentOutput(TransactionUnspentOutput)
   )
 import Ctl.Internal.Cardano.Types.Value
   ( AssetClass
@@ -154,7 +154,7 @@ import Data.Lens.Getter ((^.))
 import Data.Lens.Setter ((%~), (.~), (?~))
 import Data.Log.Tag (TagSet)
 import Data.Log.Tag (fromArray, tag) as TagSet
-import Data.Map (empty, insert, lookup, toUnfoldable, union) as Map
+import Data.Map (empty, fromFoldable, insert, lookup, toUnfoldable, union) as Map
 import Data.Maybe (Maybe(Just, Nothing), fromMaybe, isJust, maybe)
 import Data.Newtype (class Newtype, unwrap, wrap)
 import Data.Set (Set)
@@ -205,12 +205,21 @@ balanceTxWithConstraints unbalancedTx constraintsBuilder = do
             <#> traverse (note CouldNotGetUtxos)
               >>> map (foldr Map.union Map.empty) -- merge all utxos into one map
 
+    collateralUtxos <- fromMaybe [] <$> liftContract getWalletCollateral
     let
+      collateralUtxoMap :: UtxoMap
+      collateralUtxoMap =
+        Map.fromFoldable $
+          collateralUtxos <#> \(TransactionUnspentOutput { input, output }) ->
+            input /\ output
+
       allUtxos :: UtxoMap
       allUtxos =
         -- Combine utxos at the user address and those from any scripts
         -- involved with the contract in the unbalanced transaction:
-        utxos `Map.union` (unbalancedTx ^. _unbalancedTx <<< _utxoIndex)
+        utxos
+          `Map.union` (unbalancedTx ^. _unbalancedTx <<< _utxoIndex)
+          `Map.union` collateralUtxoMap
 
     availableUtxos <- liftContract $ filterLockedUtxos allUtxos
 
