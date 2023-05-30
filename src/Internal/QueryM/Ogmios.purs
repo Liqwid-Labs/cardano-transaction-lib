@@ -32,6 +32,7 @@ module Ctl.Internal.QueryM.Ogmios
   , OgmiosDatum
   , OgmiosEraSummaries(OgmiosEraSummaries)
   , OgmiosScript
+  , OgmiosTxSubmissionError(OtherTxSubmissionError, ValueNotConserved)
   , OgmiosSystemStart(OgmiosSystemStart)
   , OgmiosTxIn
   , OgmiosTxId
@@ -65,71 +66,14 @@ module Ctl.Internal.QueryM.Ogmios
 
 import Prelude
 
-import Aeson
-  ( class DecodeAeson
-  , class EncodeAeson
-  , Aeson
-  , JsonDecodeError(AtKey, TypeMismatch, MissingValue)
-  , caseAesonArray
-  , caseAesonObject
-  , caseAesonString
-  , decodeAeson
-  , encodeAeson
-  , fromArray
-  , getField
-  , getFieldOptional
-  , getFieldOptional'
-  , isNull
-  , isString
-  , stringifyAeson
-  , toString
-  , (.:)
-  , (.:?)
-  )
+import Aeson (class DecodeAeson, class EncodeAeson, Aeson, JsonDecodeError(AtKey, TypeMismatch, MissingValue), caseAesonArray, caseAesonObject, caseAesonString, decodeAeson, encodeAeson, fromArray, getField, getFieldOptional, getFieldOptional', isNull, isString, stringifyAeson, toString, (.:), (.:?))
 import Control.Alt ((<|>))
 import Control.Alternative (guard)
 import Control.Monad.Reader.Trans (ReaderT(ReaderT), runReaderT)
-import Ctl.Internal.Cardano.Types.NativeScript
-  ( NativeScript
-      ( ScriptPubkey
-      , ScriptAll
-      , ScriptAny
-      , ScriptNOfK
-      , TimelockStart
-      , TimelockExpiry
-      )
-  )
-import Ctl.Internal.Cardano.Types.ScriptRef
-  ( ScriptRef(NativeScriptRef, PlutusScriptRef)
-  )
-import Ctl.Internal.Cardano.Types.Transaction
-  ( Costmdls(Costmdls)
-  , ExUnitPrices
-  , ExUnits
-  , Ipv4(Ipv4)
-  , Ipv6(Ipv6)
-  , PoolMetadata(PoolMetadata)
-  , PoolMetadataHash(PoolMetadataHash)
-  , PoolPubKeyHash
-  , Relay(MultiHostName, SingleHostAddr, SingleHostName)
-  , SubCoin
-  , URL(URL)
-  , UnitInterval
-  )
-import Ctl.Internal.Cardano.Types.Value
-  ( Coin(Coin)
-  , CurrencySymbol
-  , NonAdaAsset
-  , Value
-  , flattenNonAdaValue
-  , getCurrencySymbol
-  , getLovelace
-  , getNonAdaAsset
-  , mkCurrencySymbol
-  , mkNonAdaAsset
-  , mkValue
-  , valueToCoin
-  )
+import Ctl.Internal.Cardano.Types.NativeScript (NativeScript(ScriptPubkey, ScriptAll, ScriptAny, ScriptNOfK, TimelockStart, TimelockExpiry))
+import Ctl.Internal.Cardano.Types.ScriptRef (ScriptRef(NativeScriptRef, PlutusScriptRef))
+import Ctl.Internal.Cardano.Types.Transaction (Costmdls(Costmdls), ExUnitPrices, ExUnits, Ipv4(Ipv4), Ipv6(Ipv6), PoolMetadata(PoolMetadata), PoolMetadataHash(PoolMetadataHash), PoolPubKeyHash, Relay(MultiHostName, SingleHostAddr, SingleHostName), SubCoin, URL(URL), UnitInterval)
+import Ctl.Internal.Cardano.Types.Value (Coin(Coin), CurrencySymbol, NonAdaAsset, Value, flattenNonAdaValue, getCurrencySymbol, getLovelace, getNonAdaAsset, mkCurrencySymbol, mkNonAdaAsset, mkValue, valueToCoin)
 import Ctl.Internal.Deserialization.FromBytes (fromBytes)
 import Ctl.Internal.Helpers (encodeMap, showWithParens)
 import Ctl.Internal.QueryM.JsonWsp (JsonWspCall, JsonWspRequest, mkCallType)
@@ -137,43 +81,20 @@ import Ctl.Internal.Serialization.Address (Slot(Slot))
 import Ctl.Internal.Serialization.Hash (Ed25519KeyHash, ed25519KeyHashFromBytes)
 import Ctl.Internal.Types.BigNum (BigNum)
 import Ctl.Internal.Types.BigNum (fromBigInt, fromString) as BigNum
-import Ctl.Internal.Types.ByteArray
-  ( ByteArray
-  , byteArrayFromIntArray
-  , byteArrayToHex
-  , hexToByteArray
-  )
+import Ctl.Internal.Types.ByteArray (ByteArray, byteArrayFromIntArray, byteArrayToHex, hexToByteArray)
 import Ctl.Internal.Types.CborBytes (CborBytes, cborBytesToHex)
 import Ctl.Internal.Types.Epoch (Epoch(Epoch))
-import Ctl.Internal.Types.EraSummaries
-  ( EraSummaries(EraSummaries)
-  , EraSummary(EraSummary)
-  , EraSummaryParameters(EraSummaryParameters)
-  )
+import Ctl.Internal.Types.EraSummaries (EraSummaries(EraSummaries), EraSummary(EraSummary), EraSummaryParameters(EraSummaryParameters))
 import Ctl.Internal.Types.Natural (Natural)
 import Ctl.Internal.Types.Natural (fromString) as Natural
-import Ctl.Internal.Types.ProtocolParameters
-  ( CoinsPerUtxoUnit(CoinsPerUtxoWord, CoinsPerUtxoByte)
-  , CostModelV1
-  , CostModelV2
-  , ProtocolParameters(ProtocolParameters)
-  , convertPlutusV1CostModel
-  , convertPlutusV2CostModel
-  )
+import Ctl.Internal.Types.ProtocolParameters (CoinsPerUtxoUnit(CoinsPerUtxoWord, CoinsPerUtxoByte), CostModelV1, CostModelV2, ProtocolParameters(ProtocolParameters), convertPlutusV1CostModel, convertPlutusV2CostModel)
 import Ctl.Internal.Types.Rational (Rational, (%))
 import Ctl.Internal.Types.Rational as Rational
 import Ctl.Internal.Types.RedeemerTag (RedeemerTag)
 import Ctl.Internal.Types.RedeemerTag (fromString) as RedeemerTag
 import Ctl.Internal.Types.RewardAddress (RewardAddress)
-import Ctl.Internal.Types.Scripts
-  ( Language(PlutusV1, PlutusV2)
-  , PlutusScript(PlutusScript)
-  )
-import Ctl.Internal.Types.SystemStart
-  ( SystemStart
-  , sysStartFromOgmiosTimestamp
-  , sysStartToOgmiosTimestamp
-  )
+import Ctl.Internal.Types.Scripts (Language(PlutusV1, PlutusV2), PlutusScript(PlutusScript))
+import Ctl.Internal.Types.SystemStart (SystemStart, sysStartFromOgmiosTimestamp, sysStartToOgmiosTimestamp)
 import Ctl.Internal.Types.TokenName (TokenName, getTokenName, mkTokenName)
 import Ctl.Internal.Types.VRFKeyHash (VRFKeyHash(VRFKeyHash))
 import Data.Array (catMaybes, index)
@@ -190,14 +111,7 @@ import Data.Map as Map
 import Data.Maybe (Maybe(Just, Nothing), fromJust, fromMaybe, maybe)
 import Data.Newtype (class Newtype, unwrap, wrap)
 import Data.Show.Generic (genericShow)
-import Data.String
-  ( Pattern(Pattern)
-  , Replacement(Replacement)
-  , indexOf
-  , split
-  , splitAt
-  , uncons
-  )
+import Data.String (Pattern(Pattern), Replacement(Replacement), indexOf, split, splitAt, uncons)
 import Data.String (replaceAll) as String
 import Data.String.Common (split) as String
 import Data.String.Utils as StringUtils
@@ -210,6 +124,7 @@ import Foreign.Object (Object)
 import Foreign.Object (singleton, toUnfoldable) as ForeignObject
 import Foreign.Object as Object
 import Partial.Unsafe (unsafePartial)
+import Undefined (undefined)
 import Untagged.TypeCheck (class HasRuntimeType)
 import Untagged.Union (type (|+|), toEither1)
 
@@ -355,9 +270,31 @@ mkOgmiosCallType =
 
 ---------------- TX SUBMISSION QUERY RESPONSE & PARSING
 
+-- | See https://ogmios.dev/api/#schema-SubmitTxError
+data OgmiosTxSubmissionError
+  = ValueNotConserved Value Value
+  | OtherTxSubmissionError Aeson
+
+derive instance Generic OgmiosTxSubmissionError _
+
+instance Show OgmiosTxSubmissionError where
+  show = genericShow
+
+instance DecodeAeson OgmiosTxSubmissionError where
+  decodeAeson a = aesonObject parseValueNotConseved a <|> pure (OtherTxSubmissionError a)
+    where
+      parseValueNotConseved :: Object Aeson -> Either JsonDecodeError OgmiosTxSubmissionError
+      parseValueNotConseved o = do
+        wrapper <- getField o "valueNotConserved"
+        consumed <- getField wrapper "consumed"
+        consumed' <- parseValue consumed
+        produced <- getField wrapper "produced"
+        produced' <- parseValue produced
+        pure $ ValueNotConserved consumed' produced'
+
 data SubmitTxR
   = SubmitTxSuccess TxHash
-  | SubmitFail (Array Aeson)
+  | SubmitFail (Array OgmiosTxSubmissionError)
 
 derive instance Generic SubmitTxR _
 
@@ -1138,7 +1075,7 @@ type OgmiosTxOut =
 parseTxOut :: Aeson -> Either JsonDecodeError OgmiosTxOut
 parseTxOut = aesonObject $ \o -> do
   address <- getField o "address"
-  value <- parseValue o
+  value <- getField o "value" >>= parseValue
   datumHash <- getFieldOptional' o "datumHash"
   datum <- getFieldOptional' o "datum"
   script <- parseScript o
@@ -1218,8 +1155,7 @@ parseScript outer =
 
 -- parses the `Value` type
 parseValue :: Object Aeson -> Either JsonDecodeError Value
-parseValue outer = do
-  o <- getField outer "value"
+parseValue o = do
   coins <- getField o "coins"
     <|> Left (TypeMismatch "Expected 'coins' to be an Int or a BigInt")
   Assets assetsMap <- fromMaybe (Assets Map.empty)
