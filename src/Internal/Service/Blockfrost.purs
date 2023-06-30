@@ -23,6 +23,7 @@ module Ctl.Internal.Service.Blockfrost
       , DelegationsAndRewards
       , AssetAddresses
       , AddressUtxosOfAsset
+      , AssetsOfPolicy
       )
   , BlockfrostStakeCredential(BlockfrostStakeCredential)
   , BlockfrostEraSummaries(BlockfrostEraSummaries)
@@ -59,6 +60,7 @@ module Ctl.Internal.Service.Blockfrost
   , submitTx
   , utxosAt
   , utxosWithAsset
+  , utxosWithPolicy
   ) where
 
 import Prelude
@@ -85,12 +87,14 @@ import Affjax.RequestBody (RequestBody, arrayView, string) as Affjax
 import Affjax.RequestHeader (RequestHeader(ContentType, RequestHeader)) as Affjax
 import Affjax.ResponseFormat (string) as Affjax.ResponseFormat
 import Affjax.StatusCode (StatusCode(StatusCode)) as Affjax
-import Contract.Prelude (mconcat)
+import Contract.Prelude (mconcat, sequence)
+import Contract.Prim.ByteArray (hexToByteArray)
 import Contract.RewardAddress
   ( rewardAddressToBech32
   , stakePubKeyHashRewardAddress
   , stakeValidatorHashRewardAddress
   )
+import Contract.Value (mkTokenName)
 import Control.Alt ((<|>))
 import Control.Monad.Error.Class (liftMaybe, throwError)
 import Control.Monad.Except.Trans (ExceptT(ExceptT), runExceptT)
@@ -358,6 +362,8 @@ data BlockfrostEndpoint
   | AssetAddresses CurrencySymbol TokenName Int Int
   -- /addresses/{address}/utxos/{asset}
   | AddressUtxosOfAsset Address CurrencySymbol TokenName Int Int
+  -- /assets/policy/{policy_id}
+  | AssetsOfPolicy CurrencySymbol Int Int
 
 derive instance Generic BlockfrostEndpoint _
 derive instance Eq BlockfrostEndpoint
@@ -417,6 +423,13 @@ realizeEndpoint endpoint =
       "/addresses/" <> addressBech32 address <> "/utxos/"
         <> byteArrayToHex (getCurrencySymbol currencySymbol)
         <> byteArrayToHex (getTokenName tokenName)
+        <> "?page="
+        <> show page
+        <> "&count="
+        <> show count
+    AssetsOfPolicy currencySymbol page count ->
+      "/assets/policy/"
+        <> byteArrayToHex (getCurrencySymbol currencySymbol)
         <> "?page="
         <> show page
         <> "&count="
@@ -571,7 +584,7 @@ utxosAt address = runExceptT $
     utxos <- ExceptT $
       blockfrostGetRequest (UtxosAtAddress address page maxNumResultsOnPage)
         <#> handle404AsMempty <<< handleBlockfrostResponse
-    case Array.length (unwrap utxos) /= maxNumResultsOnPage of
+    case Array.length (unwrap utxos) < maxNumResultsOnPage of
       true -> pure utxos
       false -> append utxos <$> ExceptT (utxosAtAddressOnPage $ page + 1)
 
@@ -615,7 +628,7 @@ utxosWithAsset currencySymbol tokenName = runExceptT do
         (AssetAddresses currencySymbol tokenName page maxNumResultsOnPage)
         <#> handle404AsMempty <<< handleBlockfrostResponse
     let addresses = result <#> unwrapBlockfrostAddressAssets >>> _.address
-    case Array.length addresses /= maxNumResultsOnPage of
+    case Array.length addresses < maxNumResultsOnPage of
       true -> pure addresses
       false -> append addresses <$> ExceptT (assetAddressesOnPage $ page + 1)
 
@@ -632,10 +645,33 @@ utxosWithAsset currencySymbol tokenName = runExceptT do
             maxNumResultsOnPage
         )
         <#> handle404AsMempty <<< handleBlockfrostResponse
-    case Array.length (unwrap utxos) /= maxNumResultsOnPage of
+    case Array.length (unwrap utxos) < maxNumResultsOnPage of
       true -> pure utxos
       false -> append utxos <$> ExceptT
         (utxosAtAddressOnPage address $ page + 1)
+
+utxosWithPolicy
+  :: CurrencySymbol
+  -> BlockfrostServiceM (Either ClientError UtxoMap)
+utxosWithPolicy currencySymbol = runExceptT do
+  tokenNames <- ExceptT (tokenNamesOnPage 1)
+  ExceptT do
+    utxos <- traverse (utxosWithAsset currencySymbol) tokenNames
+    pure $ Map.unions <$> sequence utxos
+  where
+  tokenNamesOnPage
+    :: Int -> BlockfrostServiceM (Either ClientError (Array TokenName))
+  tokenNamesOnPage page = runExceptT do
+    -- Maximum number of results per page supported by Blockfrost:
+    let maxNumResultsOnPage = 100
+    result <- ExceptT $
+      blockfrostGetRequest
+        (AssetsOfPolicy currencySymbol page maxNumResultsOnPage)
+        <#> handle404AsMempty <<< handleBlockfrostResponse
+    let assets = result <#> unwrapBlockfrostAsset >>> _.asset
+    case Array.length assets < maxNumResultsOnPage of
+      true -> pure assets
+      false -> append assets <$> ExceptT (tokenNamesOnPage $ page + 1)
 
 --------------------------------------------------------------------------------
 -- Get datum by hash
@@ -1489,3 +1525,35 @@ unwrapBlockfrostAddressAssets
   :: BlockfrostAddressAssets
   -> { address :: Address, quantity :: BigInt }
 unwrapBlockfrostAddressAssets (BlockfrostAddressAssets assets) = assets
+
+newtype BlockfrostAsset = BlockfrostAsset
+  { asset :: TokenName
+  , quantity :: BigInt
+  }
+
+derive instance Generic BlockfrostAsset _
+derive instance Eq BlockfrostAsset
+derive instance Newtype BlockfrostAsset _
+
+instance Show BlockfrostAsset where
+  show = genericShow
+
+instance DecodeAeson BlockfrostAsset where
+  decodeAeson = aesonObject \obj -> do
+    asset <- decodeAsset obj
+    quantity <-
+      getField obj "quantity" >>=
+        BigInt.fromString >>>
+          note (TypeMismatch "Expected string repr of BigInt")
+    pure $ wrap { asset, quantity }
+    where
+    decodeAsset :: Object Aeson -> Either JsonDecodeError TokenName
+    decodeAsset obj =
+      getField obj "asset" >>= \asset ->
+        note (TypeMismatch "Expected hexadecimal-encoded asset name")
+          $ mkTokenName =<< hexToByteArray asset
+
+unwrapBlockfrostAsset
+  :: BlockfrostAsset
+  -> { asset :: TokenName, quantity :: BigInt }
+unwrapBlockfrostAsset (BlockfrostAsset asset) = asset
