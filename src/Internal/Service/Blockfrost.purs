@@ -21,6 +21,8 @@ module Ctl.Internal.Service.Blockfrost
       , PoolIds
       , PoolParameters
       , DelegationsAndRewards
+      , AssetAddresses
+      , AddressUtxosOfAsset
       )
   , BlockfrostStakeCredential(BlockfrostStakeCredential)
   , BlockfrostEraSummaries(BlockfrostEraSummaries)
@@ -56,6 +58,7 @@ module Ctl.Internal.Service.Blockfrost
   , runBlockfrostServiceTestM
   , submitTx
   , utxosAt
+  , utxosWithAsset
   ) where
 
 import Prelude
@@ -82,6 +85,7 @@ import Affjax.RequestBody (RequestBody, arrayView, string) as Affjax
 import Affjax.RequestHeader (RequestHeader(ContentType, RequestHeader)) as Affjax
 import Affjax.ResponseFormat (string) as Affjax.ResponseFormat
 import Affjax.StatusCode (StatusCode(StatusCode)) as Affjax
+import Contract.Prelude (mconcat)
 import Contract.RewardAddress
   ( rewardAddressToBech32
   , stakePubKeyHashRewardAddress
@@ -117,7 +121,12 @@ import Ctl.Internal.Cardano.Types.Transaction
   , UtxoMap
   , poolPubKeyHashToBech32
   )
-import Ctl.Internal.Cardano.Types.Value (Coin(Coin), Value)
+import Ctl.Internal.Cardano.Types.Value
+  ( Coin(Coin)
+  , CurrencySymbol
+  , Value
+  , getCurrencySymbol
+  )
 import Ctl.Internal.Cardano.Types.Value
   ( lovelaceValueOf
   , mkSingletonNonAdaAsset
@@ -200,6 +209,7 @@ import Ctl.Internal.Types.Scripts
   , plutusV2Script
   )
 import Ctl.Internal.Types.SystemStart (SystemStart(SystemStart))
+import Ctl.Internal.Types.TokenName (TokenName, getTokenName)
 import Ctl.Internal.Types.Transaction
   ( TransactionHash
   , TransactionInput(TransactionInput)
@@ -344,6 +354,10 @@ data BlockfrostEndpoint
   | PoolParameters PoolPubKeyHash
   -- /accounts/{stake_address}
   | DelegationsAndRewards BlockfrostStakeCredential
+  -- /assets/{asset}/address
+  | AssetAddresses CurrencySymbol TokenName Int Int
+  -- /addresses/{address}/utxos/{asset}
+  | AddressUtxosOfAsset Address CurrencySymbol TokenName Int Int
 
 derive instance Generic BlockfrostEndpoint _
 derive instance Eq BlockfrostEndpoint
@@ -392,6 +406,21 @@ realizeEndpoint endpoint =
       "/pool/" <> poolPubKeyHashToBech32 poolPubKeyHash
     DelegationsAndRewards credential ->
       "/accounts/" <> blockfrostStakeCredentialToBech32 credential
+    AssetAddresses currencySymbol tokenName page count ->
+      "/assets/" <> byteArrayToHex (getCurrencySymbol currencySymbol)
+        <> byteArrayToHex (getTokenName tokenName)
+        <> "/addresses?page="
+        <> show page
+        <> "&count="
+        <> show count
+    AddressUtxosOfAsset address currencySymbol tokenName page count ->
+      "/addresses/" <> addressBech32 address <> "/utxos/"
+        <> byteArrayToHex (getCurrencySymbol currencySymbol)
+        <> byteArrayToHex (getTokenName tokenName)
+        <> "?page="
+        <> show page
+        <> "&count="
+        <> show count
 
 blockfrostGetRequest
   :: BlockfrostEndpoint
@@ -566,6 +595,47 @@ getOutputAddressesByTxHash txHash = runExceptT do
     blockfrostGetRequest (UtxosOfTransaction txHash)
       <#> handle404AsMempty <<< handleBlockfrostResponse
   pure $ _.address <<< unwrap <<< snd <$> unwrap blockfrostUtxoMap
+
+utxosWithAsset
+  :: CurrencySymbol
+  -> TokenName
+  -> BlockfrostServiceM (Either ClientError UtxoMap)
+utxosWithAsset currencySymbol tokenName = runExceptT do
+  addresses <- ExceptT (assetAddressesOnPage 1)
+  traverse (ExceptT <<< flip utxosAtAddressOnPage 1) addresses
+    >>= (ExceptT <<< resolveBlockfrostUtxosAtAddress <<< mconcat)
+  where
+  assetAddressesOnPage
+    :: Int -> BlockfrostServiceM (Either ClientError (Array Address))
+  assetAddressesOnPage page = runExceptT do
+    -- Maximum number of results per page supported by Blockfrost:
+    let maxNumResultsOnPage = 100
+    result <- ExceptT $
+      blockfrostGetRequest
+        (AssetAddresses currencySymbol tokenName page maxNumResultsOnPage)
+        <#> handle404AsMempty <<< handleBlockfrostResponse
+    let addresses = result <#> unwrapBlockfrostAddressAssets >>> _.address
+    case Array.length addresses /= maxNumResultsOnPage of
+      true -> pure addresses
+      false -> append addresses <$> ExceptT (assetAddressesOnPage $ page + 1)
+
+  utxosAtAddressOnPage
+    :: Address
+    -> Int
+    -> BlockfrostServiceM (Either ClientError BlockfrostUtxosAtAddress)
+  utxosAtAddressOnPage address page = runExceptT do
+    -- Maximum number of results per page supported by Blockfrost:
+    let maxNumResultsOnPage = 100
+    utxos <- ExceptT $
+      blockfrostGetRequest
+        ( AddressUtxosOfAsset address currencySymbol tokenName page
+            maxNumResultsOnPage
+        )
+        <#> handle404AsMempty <<< handleBlockfrostResponse
+    case Array.length (unwrap utxos) /= maxNumResultsOnPage of
+      true -> pure utxos
+      false -> append utxos <$> ExceptT
+        (utxosAtAddressOnPage address $ page + 1)
 
 --------------------------------------------------------------------------------
 -- Get datum by hash
@@ -1385,3 +1455,37 @@ instance DecodeAeson BlockfrostRewards where
       { pool_id
       , withdrawable_amount
       }
+
+--------------------------------------------------------------------------------
+
+newtype BlockfrostAddressAssets = BlockfrostAddressAssets
+  { address :: Address
+  , quantity :: BigInt
+  }
+
+derive instance Generic BlockfrostAddressAssets _
+derive instance Eq BlockfrostAddressAssets
+derive instance Newtype BlockfrostAddressAssets _
+
+instance Show BlockfrostAddressAssets where
+  show = genericShow
+
+instance DecodeAeson BlockfrostAddressAssets where
+  decodeAeson = aesonObject \obj -> do
+    address <- decodeAddress obj
+    quantity <-
+      getField obj "quantity" >>=
+        BigInt.fromString >>>
+          note (TypeMismatch "Expected string repr of BigInt")
+    pure $ wrap { address, quantity }
+    where
+    decodeAddress :: Object Aeson -> Either JsonDecodeError Address
+    decodeAddress obj =
+      getField obj "address" >>= \address ->
+        note (TypeMismatch "Expected bech32 encoded address")
+          (addressFromBech32 address)
+
+unwrapBlockfrostAddressAssets
+  :: BlockfrostAddressAssets
+  -> { address :: Address, quantity :: BigInt }
+unwrapBlockfrostAddressAssets (BlockfrostAddressAssets assets) = assets
