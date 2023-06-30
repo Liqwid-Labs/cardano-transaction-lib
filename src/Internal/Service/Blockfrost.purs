@@ -65,23 +65,7 @@ module Ctl.Internal.Service.Blockfrost
 
 import Prelude
 
-import Aeson
-  ( class DecodeAeson
-  , Aeson
-  , Finite
-  , JsonDecodeError(TypeMismatch, MissingValue, AtKey)
-  , decodeAeson
-  , decodeJsonString
-  , getField
-  , getFieldOptional
-  , getFieldOptional'
-  , isNull
-  , parseJsonStringToAeson
-  , stringifyAeson
-  , unpackFinite
-  , (.:)
-  , (.:!)
-  )
+import Aeson (class DecodeAeson, Aeson, Finite, JsonDecodeError(TypeMismatch, MissingValue, AtKey), decodeAeson, decodeJsonString, getField, getFieldOptional, getFieldOptional', isNull, parseJsonStringToAeson, stringifyAeson, unpackFinite, (.:), (.:!))
 import Affjax (Error, Response, URL, defaultRequest, printError, request) as Affjax
 import Affjax.RequestBody (RequestBody, arrayView, string) as Affjax
 import Affjax.RequestHeader (RequestHeader(ContentType, RequestHeader)) as Affjax
@@ -89,11 +73,7 @@ import Affjax.ResponseFormat (string) as Affjax.ResponseFormat
 import Affjax.StatusCode (StatusCode(StatusCode)) as Affjax
 import Contract.Prelude (mconcat, sequence)
 import Contract.Prim.ByteArray (hexToByteArray)
-import Contract.RewardAddress
-  ( rewardAddressToBech32
-  , stakePubKeyHashRewardAddress
-  , stakeValidatorHashRewardAddress
-  )
+import Contract.RewardAddress (rewardAddressToBech32, stakePubKeyHashRewardAddress, stakeValidatorHashRewardAddress)
 import Contract.Value (mkTokenName)
 import Control.Alt ((<|>))
 import Control.Monad.Error.Class (liftMaybe, throwError)
@@ -104,81 +84,24 @@ import Control.Monad.Maybe.Trans (MaybeT(MaybeT), runMaybeT)
 import Control.Monad.Reader.Class (ask, asks)
 import Control.Monad.Reader.Trans (ReaderT, runReaderT)
 import Control.Parallel (parTraverse)
-import Ctl.Internal.Cardano.Types.NativeScript
-  ( NativeScript
-      ( ScriptAll
-      , ScriptAny
-      , ScriptNOfK
-      , ScriptPubkey
-      , TimelockExpiry
-      , TimelockStart
-      )
-  )
-import Ctl.Internal.Cardano.Types.ScriptRef
-  ( ScriptRef(NativeScriptRef, PlutusScriptRef)
-  )
-import Ctl.Internal.Cardano.Types.Transaction
-  ( Costmdls(Costmdls)
-  , PoolPubKeyHash
-  , Transaction
-  , TransactionOutput(TransactionOutput)
-  , UtxoMap
-  , poolPubKeyHashToBech32
-  )
-import Ctl.Internal.Cardano.Types.Value
-  ( Coin(Coin)
-  , CurrencySymbol
-  , Value
-  , getCurrencySymbol
-  )
-import Ctl.Internal.Cardano.Types.Value
-  ( lovelaceValueOf
-  , mkSingletonNonAdaAsset
-  , mkValue
-  ) as Value
+import Ctl.Internal.Cardano.Types.NativeScript (NativeScript(ScriptAll, ScriptAny, ScriptNOfK, ScriptPubkey, TimelockExpiry, TimelockStart))
+import Ctl.Internal.Cardano.Types.ScriptRef (ScriptRef(NativeScriptRef, PlutusScriptRef))
+import Ctl.Internal.Cardano.Types.Transaction (Costmdls(Costmdls), PoolPubKeyHash, Transaction, TransactionOutput(TransactionOutput), UtxoMap, poolPubKeyHashToBech32)
+import Ctl.Internal.Cardano.Types.Value (Coin(Coin), CurrencySymbol, Value, getCurrencySymbol, valueOf)
+import Ctl.Internal.Cardano.Types.Value (lovelaceValueOf, mkSingletonNonAdaAsset, mkValue) as Value
 import Ctl.Internal.Contract.QueryBackend (BlockfrostBackend)
-import Ctl.Internal.Contract.QueryHandle.Error
-  ( GetTxMetadataError
-      ( GetTxMetadataTxNotFoundError
-      , GetTxMetadataClientError
-      , GetTxMetadataMetadataEmptyOrMissingError
-      )
-  )
+import Ctl.Internal.Contract.QueryHandle.Error (GetTxMetadataError(GetTxMetadataTxNotFoundError, GetTxMetadataClientError, GetTxMetadataMetadataEmptyOrMissingError))
 import Ctl.Internal.Deserialization.FromBytes (fromBytes)
 import Ctl.Internal.Deserialization.PlutusData (deserializeData)
-import Ctl.Internal.Deserialization.Transaction
-  ( convertGeneralTransactionMetadata
-  )
+import Ctl.Internal.Deserialization.Transaction (convertGeneralTransactionMetadata)
 import Ctl.Internal.QueryM.Ogmios (TxEvaluationR)
 import Ctl.Internal.QueryM.Pools (DelegationsAndRewards)
 import Ctl.Internal.Serialization as Serialization
-import Ctl.Internal.Serialization.Address
-  ( Address
-  , NetworkId
-  , addressBech32
-  , addressFromBech32
-  )
-import Ctl.Internal.Serialization.Hash
-  ( ScriptHash
-  , ed25519KeyHashFromBytes
-  , scriptHashToBytes
-  )
+import Ctl.Internal.Serialization.Address (Address, NetworkId, addressBech32, addressFromBech32)
+import Ctl.Internal.Serialization.Hash (ScriptHash, ed25519KeyHashFromBytes, scriptHashToBytes)
 import Ctl.Internal.ServerConfig (ServerConfig, mkHttpUrl)
-import Ctl.Internal.Service.Error
-  ( ClientError
-      ( ClientDecodeJsonError
-      , ClientHttpError
-      , ClientHttpResponseError
-      , ClientOtherError
-      )
-  , ServiceError(ServiceBlockfrostError)
-  )
-import Ctl.Internal.Service.Helpers
-  ( aesonArray
-  , aesonObject
-  , aesonString
-  , decodeAssetClass
-  )
+import Ctl.Internal.Service.Error (ClientError(ClientDecodeJsonError, ClientHttpError, ClientHttpResponseError, ClientOtherError), ServiceError(ServiceBlockfrostError))
+import Ctl.Internal.Service.Helpers (aesonArray, aesonObject, aesonString, decodeAssetClass)
 import Ctl.Internal.Types.Aliases (Bech32String)
 import Ctl.Internal.Types.BigNum (BigNum)
 import Ctl.Internal.Types.BigNum as BigNum
@@ -187,41 +110,18 @@ import Ctl.Internal.Types.CborBytes (CborBytes, cborBytesToHex)
 import Ctl.Internal.Types.Chain (Tip(Tip, TipAtGenesis))
 import Ctl.Internal.Types.Datum (DataHash(DataHash), Datum)
 import Ctl.Internal.Types.Epoch (Epoch(Epoch))
-import Ctl.Internal.Types.EraSummaries
-  ( EraSummaries
-  , EraSummary
-  , EraSummaryParameters
-  )
-import Ctl.Internal.Types.OutputDatum
-  ( OutputDatum(NoOutputDatum, OutputDatum, OutputDatumHash)
-  )
-import Ctl.Internal.Types.ProtocolParameters
-  ( CoinsPerUtxoUnit(CoinsPerUtxoWord, CoinsPerUtxoByte)
-  , CostModelV1
-  , CostModelV2
-  , ProtocolParameters(ProtocolParameters)
-  , convertPlutusV1CostModel
-  , convertPlutusV2CostModel
-  )
+import Ctl.Internal.Types.EraSummaries (EraSummaries, EraSummary, EraSummaryParameters)
+import Ctl.Internal.Types.OutputDatum (OutputDatum(NoOutputDatum, OutputDatum, OutputDatumHash))
+import Ctl.Internal.Types.ProtocolParameters (CoinsPerUtxoUnit(CoinsPerUtxoWord, CoinsPerUtxoByte), CostModelV1, CostModelV2, ProtocolParameters(ProtocolParameters), convertPlutusV1CostModel, convertPlutusV2CostModel)
 import Ctl.Internal.Types.PubKeyHash (StakePubKeyHash)
 import Ctl.Internal.Types.Rational (Rational, reduce)
 import Ctl.Internal.Types.RawBytes (rawBytesToHex)
-import Ctl.Internal.Types.Scripts
-  ( Language(PlutusV2, PlutusV1)
-  , StakeValidatorHash
-  , plutusV1Script
-  , plutusV2Script
-  )
+import Ctl.Internal.Types.Scripts (Language(PlutusV2, PlutusV1), StakeValidatorHash, plutusV1Script, plutusV2Script)
 import Ctl.Internal.Types.SystemStart (SystemStart(SystemStart))
 import Ctl.Internal.Types.TokenName (TokenName, getTokenName)
-import Ctl.Internal.Types.Transaction
-  ( TransactionHash
-  , TransactionInput(TransactionInput)
-  )
-import Ctl.Internal.Types.TransactionMetadata
-  ( GeneralTransactionMetadata(GeneralTransactionMetadata)
-  )
-import Data.Array (find, length) as Array
+import Ctl.Internal.Types.Transaction (TransactionHash, TransactionInput(TransactionInput))
+import Ctl.Internal.Types.TransactionMetadata (GeneralTransactionMetadata(GeneralTransactionMetadata))
+import Data.Array (filter, find, length) as Array
 import Data.Bifunctor (lmap)
 import Data.BigInt (BigInt)
 import Data.BigInt (fromString, toNumber) as BigInt
@@ -241,7 +141,7 @@ import Data.MediaType (MediaType(MediaType))
 import Data.Newtype (class Newtype, unwrap, wrap)
 import Data.Number (infinity)
 import Data.Show.Generic (genericShow)
-import Data.String (splitAt) as String
+import Data.String (drop, splitAt) as String
 import Data.Time.Duration (Seconds(Seconds), convertDuration)
 import Data.Traversable (for, for_, traverse)
 import Data.Tuple (Tuple(Tuple), fst, snd)
@@ -641,13 +541,18 @@ utxosWithAsset currencySymbol tokenName = runExceptT do
     let maxNumResultsOnPage = 100
     utxos <- ExceptT $
       blockfrostGetRequest
-        ( AddressUtxosOfAsset address currencySymbol tokenName page
-            maxNumResultsOnPage
-        )
-        <#> handle404AsMempty <<< handleBlockfrostResponse
-    case Array.length (unwrap utxos) < maxNumResultsOnPage of
-      true -> pure utxos
-      false -> append utxos <$> ExceptT
+        (UtxosAtAddress address page maxNumResultsOnPage)
+        <#> map unwrapBlockfrostUtxosAtAddress
+        <<< handle404AsMempty
+        <<< handleBlockfrostResponse
+    let
+      utxos' = BlockfrostUtxosAtAddress $
+        Array.filter (\((_ /\ (BlockfrostTransactionOutput {amount}))) ->
+          valueOf amount currencySymbol tokenName > zero)
+          utxos
+    case Array.length utxos < maxNumResultsOnPage of
+      true -> pure utxos'
+      false -> append utxos' <$> ExceptT
         (utxosAtAddressOnPage address $ page + 1)
 
 utxosWithPolicy
@@ -668,10 +573,10 @@ utxosWithPolicy currencySymbol = runExceptT do
       blockfrostGetRequest
         (AssetsOfPolicy currencySymbol page maxNumResultsOnPage)
         <#> handle404AsMempty <<< handleBlockfrostResponse
-    let assets = result <#> unwrapBlockfrostAsset >>> _.asset
-    case Array.length assets < maxNumResultsOnPage of
-      true -> pure assets
-      false -> append assets <$> ExceptT (tokenNamesOnPage $ page + 1)
+    let tokenNames = result <#> unwrapBlockfrostAsset >>> _.tokenName
+    case Array.length tokenNames < maxNumResultsOnPage of
+      true -> pure tokenNames
+      false -> append tokenNames <$> ExceptT (tokenNamesOnPage $ page + 1)
 
 --------------------------------------------------------------------------------
 -- Get datum by hash
@@ -1060,6 +965,11 @@ instance DecodeAeson BlockfrostUtxosOfTransaction where
     decodeTxOref txHash = aesonObject $
       flip getField "output_index" >>> map \index ->
         TransactionInput { transactionId: txHash, index }
+
+unwrapBlockfrostUtxosAtAddress
+  :: BlockfrostUtxosAtAddress
+  -> Array BlockfrostUnspentOutput
+unwrapBlockfrostUtxosAtAddress (BlockfrostUtxosAtAddress assets) = assets
 
 --------------------------------------------------------------------------------
 -- BlockfrostTransactionOutput
@@ -1510,9 +1420,9 @@ instance DecodeAeson BlockfrostAddressAssets where
   decodeAeson = aesonObject \obj -> do
     address <- decodeAddress obj
     quantity <-
-      getField obj "quantity" >>=
-        BigInt.fromString >>>
-          note (TypeMismatch "Expected string repr of BigInt")
+      -- NOTE: Blockfrost may return NaN for quantities, not sure how to handle
+      -- this
+      getField obj "quantity" >>= BigInt.fromString >>> fromMaybe zero >>> pure
     pure $ wrap { address, quantity }
     where
     decodeAddress :: Object Aeson -> Either JsonDecodeError Address
@@ -1527,7 +1437,7 @@ unwrapBlockfrostAddressAssets
 unwrapBlockfrostAddressAssets (BlockfrostAddressAssets assets) = assets
 
 newtype BlockfrostAsset = BlockfrostAsset
-  { asset :: TokenName
+  { tokenName :: TokenName
   , quantity :: BigInt
   }
 
@@ -1540,20 +1450,20 @@ instance Show BlockfrostAsset where
 
 instance DecodeAeson BlockfrostAsset where
   decodeAeson = aesonObject \obj -> do
-    asset <- decodeAsset obj
+    tokenName <- decodeTokenName obj
     quantity <-
       getField obj "quantity" >>=
         BigInt.fromString >>>
           note (TypeMismatch "Expected string repr of BigInt")
-    pure $ wrap { asset, quantity }
+    pure $ wrap { tokenName, quantity }
     where
-    decodeAsset :: Object Aeson -> Either JsonDecodeError TokenName
-    decodeAsset obj =
+    decodeTokenName :: Object Aeson -> Either JsonDecodeError TokenName
+    decodeTokenName obj =
       getField obj "asset" >>= \asset ->
         note (TypeMismatch "Expected hexadecimal-encoded asset name")
-          $ mkTokenName =<< hexToByteArray asset
+          $ mkTokenName =<< hexToByteArray (String.drop 58 asset)
 
 unwrapBlockfrostAsset
   :: BlockfrostAsset
-  -> { asset :: TokenName, quantity :: BigInt }
+  -> { tokenName :: TokenName, quantity :: BigInt }
 unwrapBlockfrostAsset (BlockfrostAsset asset) = asset
