@@ -5,12 +5,10 @@ exports._getNetworkId = conn => () => conn.getNetworkId();
 exports._getUtxos = maybe => conn => () =>
   conn.getUtxos().then(res => (res === null ? maybe.nothing : maybe.just(res)));
 
-exports._getCollateral = maybe => conn => () =>
-  // yoroi will throw an error if no argument is provided
-  // typhon will throw an error if the argument is not a string
-  (conn.getCollateral
-    ? conn.getCollateral("3000000")
-    : conn.experimental.getCollateral("3000000")
+exports._getCollateral = maybe => conn => requiredValue => () =>
+  (typeof conn.getCollateral === "function"
+    ? conn.getCollateral(requiredValue)
+    : conn.experimental.getCollateral(requiredValue)
   ).then(utxos =>
     utxos !== null && utxos.length ? maybe.just(utxos) : maybe.nothing
   );
