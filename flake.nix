@@ -1,7 +1,11 @@
 {
   description = "cardano-transaction-lib";
 
-  nixConfig.bash-prompt = "\\[\\e[0m\\][\\[\\e[0;2m\\]nix-develop \\[\\e[0;1m\\]CTL@\\[\\033[33m\\]$(git rev-parse --abbrev-ref HEAD) \\[\\e[0;32m\\]\\w\\[\\e[0m\\]]\\[\\e[0m\\]$ \\[\\e[0m\\]";
+  nixConfig = {
+    extra-substituters = [ "https://plutonomicon.cachix.org" ];
+    extra-trusted-public-keys = [ "plutonomicon.cachix.org-1:evUxtNULjCjOipxwAnYhNFeF/lyYU1FeNGaVAnm+QQw=" ];
+    bash-prompt = "\\[\\e[0m\\][\\[\\e[0;2m\\]nix-develop \\[\\e[0;1m\\]CTL@\\[\\033[33m\\]$(git rev-parse --abbrev-ref HEAD) \\[\\e[0;32m\\]\\w\\[\\e[0m\\]]\\[\\e[0m\\]$ \\[\\e[0m\\]";
+  };
 
   inputs = {
     nixpkgs.follows = "haskell-nix/nixpkgs-unstable";
@@ -57,9 +61,10 @@
     };
 
     # Repository with network parameters
+    # NOTE(bladyjoker): Cardano configurations (yaml/json) often change format and break, that's why we pin to a specific known version.
     cardano-configurations = {
       # Override with "path:/path/to/cardano-configurations";
-      url = "github:input-output-hk/cardano-configurations";
+      url = "github:input-output-hk/cardano-configurations?rev=d952529afdfdf6d53ce190b1bf8af990a7ae9590";
       flake = false;
     };
     easy-purescript-nix = {
@@ -72,7 +77,8 @@
 
     # Plutip server related inputs
     plutip = {
-      url = "github:mlabs-haskell/plutip/1bf0b547cd3689c727586abb8385c008fb2a3d1c";
+      url = "github:mlabs-haskell/plutip?rev=25536c3847adf6568eb7d290567f1ef32ee587da";
+      # TODO(bladyjoker): Why are we overriding inputs here?
       inputs = {
         nixpkgs.follows = "nixpkgs";
         iohk-nix.follows = "iohk-nix";
@@ -81,6 +87,8 @@
         cardano-node.follows = "cardano-node";
       };
     };
+
+    hercules-ci-effects.url = "github:hercules-ci/hercules-ci-effects";
   };
 
   outputs =
@@ -192,9 +200,14 @@
         in
         rec {
           packages = {
-            ctl-example-bundle-web = project.bundlePursProject {
+            ctl-purs-project = project.buildPursProject { };
+
+            ctl-example-bundle-web-esbuild = project.bundlePursProjectEsbuild {
               main = "Ctl.Examples.ByUrl";
-              entrypoint = "examples/index.js";
+            };
+
+            ctl-example-bundle-web-webpack = project.bundlePursProjectWebpack {
+              main = "Ctl.Examples.ByUrl";
             };
 
             ctl-runtime = pkgs.arion.build {
@@ -202,7 +215,7 @@
               modules = [ (buildCtlRuntime pkgs { }) ];
             };
 
-            docs = project.buildSearchablePursDocs {
+            docs = project.buildPursDocs {
               packageName = projectName;
             };
           };
@@ -210,14 +223,13 @@
           checks = {
             ctl-e2e-test = project.runE2ETest {
               name = "ctl-e2e-test";
-              testMain = "Test.Ctl.E2E";
-              env = { OGMIOS_FIXTURES = "${ogmiosFixtures}"; };
+              runnerMain = "Test.Ctl.E2E";
+              testMain = "Ctl.Examples.ByUrl";
               buildInputs = [ inputs.kupo-nixos.packages.${pkgs.system}.kupo ];
             };
             ctl-plutip-test = project.runPlutipTest {
               name = "ctl-plutip-test";
               testMain = "Test.Ctl.Plutip";
-              env = { OGMIOS_FIXTURES = "${ogmiosFixtures}"; };
             };
             ctl-staking-test = project.runPlutipTest {
               name = "ctl-staking-test";
@@ -233,9 +245,11 @@
           devShell = project.devShell;
 
           apps = {
-            docs = project.launchSearchablePursDocs {
-              builtDocs = packages.docs;
-            };
+            # TODO: restore this
+            # https://github.com/Plutonomicon/cardano-transaction-lib/issues/1578
+            # docs = project.launchSearchablePursDocs {
+            #   builtDocs = packages.docs;
+            # };
           };
         };
 
@@ -275,19 +289,19 @@
         spago = final: prev: {
           easy-ps = prev.easy-ps // {
             spago = prev.easy-ps.spago.overrideAttrs (_: rec {
-              version = "0.20.7";
+              version = "0.21.0";
               src =
                 if final.stdenv.isDarwin
                 then
                   final.fetchurl
                     {
                       url = "https://github.com/purescript/spago/releases/download/${version}/macOS.tar.gz";
-                      sha256 = "0s5zgz4kqglsavyh7h70zmn16vayg30alp42w3nx0zwaqkp79xla";
+                      sha256 = "19c0kdg7gk1c7v00lnkcsxidffab84d50d6l6vgrjy4i86ilhzd5";
                     }
                 else
                   final.fetchurl {
                     url = "https://github.com/purescript/spago/releases/download/${version}/Linux.tar.gz";
-                    sha256 = "0bh15dr1fg306kifqipnakv3rxab7hjfpcfzabw7vmg0gsfx8xka";
+                    sha256 = "1klczy04vwn5b39cnxflcqzap0d5kysp4dsw73i95xm5m7s37049";
                   };
             });
           };
@@ -320,8 +334,8 @@
         # it (i.e. `nix develop`)
         default = (psProjectFor (nixpkgsFor system)).devShell;
 
-        # This can be used with `nix develop .#hsDevShell
-        hsDevShell = self.hsFlake.${system}.devShell;
+        # This can be used with `nix develop .#devPlutipServer` to work with `./plutip-server`
+        devPlutipServer = ((plutipServerFor system).flake { }).devShell;
       });
 
       packages = perSystem (system:
@@ -507,6 +521,20 @@
         };
       };
 
-      herculesCI.ciSystems = [ "x86_64-linux" ];
+      herculesCI = inputs.hercules-ci-effects.lib.mkHerculesCI { inherit inputs; } {
+        hercules-ci.flake-update = {
+          enable = true;
+          updateBranch = "updated-flake-lock";
+          createPullRequest = true;
+          autoMergeMethod = null;
+          when = {
+            minute = 00;
+            hour = 12;
+            dayOfWeek = "Sun";
+          };
+        };
+
+        herculesCI.ciSystems = [ "x86_64-linux" ];
+      };
     };
 }
