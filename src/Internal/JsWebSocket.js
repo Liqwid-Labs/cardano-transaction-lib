@@ -25,6 +25,8 @@ exports._mkWebSocket = logger => url => () => {
     } else {
       ws = new ReconnectingWebSocket(url, [], {
         WebSocket: NoPerMessageDeflateWebSocket,
+        connectionTimeout: 5000,
+        maxRetries: 10
       });
     }
     ws.finalizers = [];
