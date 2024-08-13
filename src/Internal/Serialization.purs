@@ -144,6 +144,7 @@ import Ctl.Internal.Serialization.WitnessSet
   ( convertExUnits
   , convertRedeemer
   , convertWitnessSet
+  , setIfNonNull
   )
 import Ctl.Internal.ToData (class ToData, toData)
 import Ctl.Internal.Types.BigNum (BigNum)
@@ -488,8 +489,9 @@ convertTxBody (T.TxBody body) = do
     (unwrap body.fee)
   txBody <- newTransactionBody inputs outputs fee
   for_ body.ttl $ unwrap >>> setTxBodyTtl txBody
-  for_ body.certs $ convertCerts >=> setTxBodyCerts txBody
-  for_ body.withdrawals $ convertWithdrawals >=> setTxBodyWithdrawals txBody
+  setIfNonNull body.certs $ convertCerts >=> setTxBodyCerts txBody
+  setIfNonNull body.withdrawals $ convertWithdrawals >=> setTxBodyWithdrawals
+    txBody
   for_ body.update $ convertUpdate >=> setTxBodyUpdate txBody
   for_ body.auxiliaryDataHash $
     unwrap >>> wrap >>> fromBytes >>> fromJustEff
