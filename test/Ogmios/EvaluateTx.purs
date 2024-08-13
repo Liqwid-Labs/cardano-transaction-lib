@@ -44,7 +44,7 @@ suite = do
 ogmiosEvaluateTxValidRespDecoded :: Array (RedeemerPointer /\ ExecutionUnits)
 ogmiosEvaluateTxValidRespDecoded =
   [ { redeemerTag: Mint, redeemerIndex: zero }
-      /\ { memory: fromInt' 1685698, steps: fromInt' 609724445 }
+      /\ { memory: fromInt' 1685698, cpu: fromInt' 609724445 }
   , { redeemerTag: Spend, redeemerIndex: one }
-      /\ { memory: fromInt' 1700, steps: fromInt' 476468 }
+      /\ { memory: fromInt' 1700, cpu: fromInt' 476468 }
   ]
