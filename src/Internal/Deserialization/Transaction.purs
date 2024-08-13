@@ -63,21 +63,122 @@ module Ctl.Internal.Deserialization.Transaction
 
 import Prelude
 
-import Ctl.Internal.Cardano.Types.Transaction (AuxiliaryData(AuxiliaryData), AuxiliaryDataHash(AuxiliaryDataHash), Certificate(StakeDeregistration, StakeRegistration, StakeDelegation, PoolRegistration, PoolRetirement, GenesisKeyDelegation, MoveInstantaneousRewardsCert), CostModel(CostModel), Costmdls(Costmdls), Epoch(Epoch), ExUnitPrices, ExUnits, GenesisDelegateHash(GenesisDelegateHash), GenesisHash(GenesisHash), Ipv4(Ipv4), Ipv6(Ipv6), MIRToStakeCredentials(MIRToStakeCredentials), Mint(Mint), MoveInstantaneousReward(ToOtherPot, ToStakeCreds), Nonce(HashNonce, IdentityNonce), PoolMetadata(PoolMetadata), PoolMetadataHash(PoolMetadataHash), ProposedProtocolParameterUpdates(ProposedProtocolParameterUpdates), ProtocolParamUpdate, ProtocolVersion, Relay(SingleHostAddr, SingleHostName, MultiHostName), RequiredSigner(RequiredSigner), ScriptDataHash(ScriptDataHash), Transaction(Transaction), TxBody(TxBody), URL(URL), Update) as T
+import Ctl.Internal.Cardano.Types.Transaction
+  ( AuxiliaryData(AuxiliaryData)
+  , AuxiliaryDataHash(AuxiliaryDataHash)
+  , Certificate
+      ( StakeDeregistration
+      , StakeRegistration
+      , StakeDelegation
+      , PoolRegistration
+      , PoolRetirement
+      , GenesisKeyDelegation
+      , MoveInstantaneousRewardsCert
+      )
+  , CostModel(CostModel)
+  , Costmdls(Costmdls)
+  , Epoch(Epoch)
+  , ExUnitPrices
+  , ExUnits
+  , GenesisDelegateHash(GenesisDelegateHash)
+  , GenesisHash(GenesisHash)
+  , Ipv4(Ipv4)
+  , Ipv6(Ipv6)
+  , MIRToStakeCredentials(MIRToStakeCredentials)
+  , Mint(Mint)
+  , MoveInstantaneousReward(ToOtherPot, ToStakeCreds)
+  , Nonce(HashNonce, IdentityNonce)
+  , PoolMetadata(PoolMetadata)
+  , PoolMetadataHash(PoolMetadataHash)
+  , ProposedProtocolParameterUpdates(ProposedProtocolParameterUpdates)
+  , ProtocolParamUpdate
+  , ProtocolVersion
+  , Relay(SingleHostAddr, SingleHostName, MultiHostName)
+  , RequiredSigner(RequiredSigner)
+  , ScriptDataHash(ScriptDataHash)
+  , Transaction(Transaction)
+  , TxBody(TxBody)
+  , URL(URL)
+  , Update
+  ) as T
 import Ctl.Internal.Cardano.Types.Transaction (PoolPubKeyHash(PoolPubKeyHash))
-import Ctl.Internal.Cardano.Types.Value (Coin(Coin), mkNonAdaAsset, scriptHashAsCurrencySymbol)
-import Ctl.Internal.Deserialization.Error (Err, FromCslRepError, addErrTrace, cslErr)
+import Ctl.Internal.Cardano.Types.Value
+  ( Coin(Coin)
+  , mkNonAdaAsset
+  , scriptHashAsCurrencySymbol
+  )
+import Ctl.Internal.Deserialization.Error
+  ( Err
+  , FromCslRepError
+  , addErrTrace
+  , cslErr
+  )
 import Ctl.Internal.Deserialization.FromBytes (fromBytes')
 import Ctl.Internal.Deserialization.Language (convertLanguage)
 import Ctl.Internal.Deserialization.UnspentOutput (convertInput, convertOutput)
-import Ctl.Internal.Deserialization.WitnessSet (convertNativeScripts, convertPlutusScripts, convertWitnessSet)
+import Ctl.Internal.Deserialization.WitnessSet
+  ( convertNativeScripts
+  , convertPlutusScripts
+  , convertWitnessSet
+  )
 import Ctl.Internal.Error (E)
-import Ctl.Internal.FfiHelpers (ContainerHelper, MaybeFfiHelper, containerHelper, maybeFfiHelper)
+import Ctl.Internal.FfiHelpers
+  ( ContainerHelper
+  , MaybeFfiHelper
+  , containerHelper
+  , maybeFfiHelper
+  )
 import Ctl.Internal.Serialization (toBytes)
-import Ctl.Internal.Serialization.Address (NetworkId(TestnetId, MainnetId), RewardAddress, StakeCredential) as Csl
+import Ctl.Internal.Serialization.Address
+  ( NetworkId(TestnetId, MainnetId)
+  , RewardAddress
+  , StakeCredential
+  ) as Csl
 import Ctl.Internal.Serialization.Address (Slot(Slot))
 import Ctl.Internal.Serialization.Hash (Ed25519KeyHash, ScriptHash, VRFKeyHash) as Csl
-import Ctl.Internal.Serialization.Types (AssetName, AuxiliaryData, AuxiliaryDataHash, Certificate, CostModel, Costmdls, ExUnitPrices, ExUnits, GeneralTransactionMetadata, GenesisDelegateHash, GenesisHash, Ipv4, Ipv6, Language, MIRToStakeCredentials, MetadataList, MetadataMap, Mint, MintAssets, MultiHostName, NativeScripts, Nonce, PlutusScripts, PoolMetadata, PoolMetadataHash, PoolParams, ProtocolParamUpdate, ProtocolVersion, Relay, ScriptDataHash, SingleHostAddr, SingleHostName, Transaction, TransactionBody, TransactionInput, TransactionMetadatum, TransactionOutput, TransactionWitnessSet, UnitInterval, Update, Withdrawals) as Csl
+import Ctl.Internal.Serialization.Types
+  ( AssetName
+  , AuxiliaryData
+  , AuxiliaryDataHash
+  , Certificate
+  , CostModel
+  , Costmdls
+  , ExUnitPrices
+  , ExUnits
+  , GeneralTransactionMetadata
+  , GenesisDelegateHash
+  , GenesisHash
+  , Ipv4
+  , Ipv6
+  , Language
+  , MIRToStakeCredentials
+  , MetadataList
+  , MetadataMap
+  , Mint
+  , MintAssets
+  , MultiHostName
+  , NativeScripts
+  , Nonce
+  , PlutusScripts
+  , PoolMetadata
+  , PoolMetadataHash
+  , PoolParams
+  , ProtocolParamUpdate
+  , ProtocolVersion
+  , Relay
+  , ScriptDataHash
+  , SingleHostAddr
+  , SingleHostName
+  , Transaction
+  , TransactionBody
+  , TransactionInput
+  , TransactionMetadatum
+  , TransactionOutput
+  , TransactionWitnessSet
+  , UnitInterval
+  , Update
+  , Withdrawals
+  ) as Csl
 import Ctl.Internal.Types.BigNum (BigNum) as Csl
 import Ctl.Internal.Types.BigNum (toBigInt) as BigNum
 import Ctl.Internal.Types.ByteArray (ByteArray)
@@ -86,16 +187,19 @@ import Ctl.Internal.Types.Int (Int) as Csl
 import Ctl.Internal.Types.Int as Int
 import Ctl.Internal.Types.RewardAddress (RewardAddress(RewardAddress)) as T
 import Ctl.Internal.Types.TokenName (TokenName, tokenNameFromAssetName)
-import Ctl.Internal.Types.TransactionMetadata (GeneralTransactionMetadata, TransactionMetadatum(MetadataList, MetadataMap, Bytes, Int, Text), TransactionMetadatumLabel(TransactionMetadatumLabel))
+import Ctl.Internal.Types.TransactionMetadata
+  ( GeneralTransactionMetadata
+  , TransactionMetadatum(MetadataList, MetadataMap, Bytes, Int, Text)
+  , TransactionMetadatumLabel(TransactionMetadatumLabel)
+  )
 import Ctl.Internal.Types.VRFKeyHash (VRFKeyHash(VRFKeyHash))
-import Data.Array as Array
 import Data.Bifunctor (bimap, lmap)
 import Data.BigInt (BigInt)
 import Data.BigInt as BigInt
 import Data.Bitraversable (bitraverse)
 import Data.Either (Either)
 import Data.Map as M
-import Data.Maybe (Maybe(..), fromMaybe)
+import Data.Maybe (Maybe, fromMaybe)
 import Data.Newtype (unwrap, wrap)
 import Data.Ratio (Ratio, reduce)
 import Data.Set (fromFoldable) as Set
@@ -145,9 +249,9 @@ convertTxBody txBody = do
       _txBodyNetworkId Csl.TestnetId Csl.MainnetId maybeFfiHelper txBody
 
     ws :: Maybe (Array (Csl.RewardAddress /\ Csl.BigNum))
-    ws = (_unpackWithdrawals containerHelper <$> _txBodyWithdrawals
+    ws = _unpackWithdrawals containerHelper <$> _txBodyWithdrawals
       maybeFfiHelper
-      txBody) >>= \arr -> if Array.null arr then Nothing else Just arr
+      txBody
 
   withdrawals :: Maybe (M.Map T.RewardAddress Coin) <-
     -- array -> map
