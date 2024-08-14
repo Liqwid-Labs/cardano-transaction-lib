@@ -66,6 +66,9 @@ newtype ProtocolParameters = ProtocolParameters
   , maxValueSize :: UInt
   , collateralPercent :: UInt
   , maxCollateralInputs :: UInt
+  , minFeeRefScriptBase :: UInt
+  , minFeeRefScriptRange :: UInt
+  , minFeeRefScriptMultiplier :: UInt
   }
 
 derive instance Newtype ProtocolParameters _

@@ -155,6 +155,7 @@ import Ctl.Internal.Types.EraSummaries
   , EraSummary(EraSummary)
   , EraSummaryParameters(EraSummaryParameters)
   )
+import Ctl.Internal.Types.Int as InternalInt
 import Ctl.Internal.Types.Natural (Natural)
 import Ctl.Internal.Types.Natural (fromString) as Natural
 import Ctl.Internal.Types.ProtocolParameters
@@ -190,7 +191,6 @@ import Data.Either (Either(Left, Right), either, note)
 import Data.Foldable (fold, foldl)
 import Data.Generic.Rep (class Generic)
 import Data.Int (fromString) as Int
-import Ctl.Internal.Types.Int as InternalInt
 import Data.Map (Map)
 import Data.Map as Map
 import Data.Maybe (Maybe(Just, Nothing), fromJust, fromMaybe, maybe)
@@ -241,7 +241,8 @@ queryEraSummariesCall = mkOgmiosCallTypeNoArgs "queryLedgerState/eraSummaries"
 
 -- | Queries Ogmios for the current protocol parameters
 queryProtocolParametersCall :: JsonWspCall Unit OgmiosProtocolParameters
-queryProtocolParametersCall = mkOgmiosCallTypeNoArgs "queryLedgerState/protocolParameters"
+queryProtocolParametersCall = mkOgmiosCallTypeNoArgs
+  "queryLedgerState/protocolParameters"
 
 -- | Queries Ogmios for the chain’s current tip.
 queryChainTipCall :: JsonWspCall Unit ChainTipQR
@@ -281,7 +282,7 @@ type OgmiosAddress = String
 submitTxCall :: JsonWspCall (TxHash /\ CborBytes) SubmitTxR
 submitTxCall = mkOgmiosCallType
   { method: "submitTransaction"
-  , params: (\x -> { transaction: {cbor: x} }) <<< cborBytesToHex <<< snd
+  , params: (\x -> { transaction: { cbor: x } }) <<< cborBytesToHex <<< snd
   }
 
 -- | Evaluates the execution units of scripts present in a given transaction,
@@ -290,7 +291,7 @@ evaluateTxCall :: JsonWspCall (CborBytes /\ AdditionalUtxoSet) TxEvaluationR
 evaluateTxCall = mkOgmiosCallType
   { method: "evaluateTransaction"
   , params: \(cbor /\ additionalUtxo) ->
-      { transaction: {cbor: cborBytesToHex cbor}
+      { transaction: { cbor: cborBytesToHex cbor }
       , additionalUtxo: encodeAeson additionalUtxo
       }
   }
@@ -389,7 +390,9 @@ mkOgmiosCallTypeNoArgs
   :: forall (o :: Type). String -> JsonWspCall Unit o
 mkOgmiosCallTypeNoArgs method =
   mkCallType
-    ({ method: method, params: Nothing } :: {method :: String, params :: Maybe (Unit -> {})})
+    ( { method: method, params: Nothing }
+        :: { method :: String, params :: Maybe (Unit -> {}) }
+    )
 
 mkOgmiosCallType
   :: forall (a :: Type) (i :: Type) (o :: Type)
@@ -416,14 +419,14 @@ instance DecodeAeson SubmitTxR where
   decodeAeson x =
     success x <|> failure x
     where
-      success = aesonObject $ \o -> do
-        result :: {transaction :: {id :: String}} <- getField o "result"
-        maybe
-          (Left (TypeMismatch "Invalid TransactionHash"))
-          (pure <<< SubmitTxSuccess)
-          $ hexToByteArray result.transaction.id
-      failure = aesonObject $ \o ->
-        SubmitFail <$> getField o "error"
+    success = aesonObject $ \o -> do
+      result :: { transaction :: { id :: String } } <- getField o "result"
+      maybe
+        (Left (TypeMismatch "Invalid TransactionHash"))
+        (pure <<< SubmitTxSuccess)
+        $ hexToByteArray result.transaction.id
+    failure = aesonObject $ \o ->
+      SubmitFail <$> getField o "error"
 
 ---------------- SYSTEM START QUERY RESPONSE & PARSING
 newtype OgmiosSystemStart = OgmiosSystemStart SystemStart
@@ -489,7 +492,10 @@ instance DecodeAeson OgmiosEraSummaries where
       pure $ wrap { start, end, parameters }
 
     decodeEraSummaryParameters
-      :: {epochLength :: BigInt, slotLength :: {milliseconds :: BigInt}, safeZone :: Maybe BigInt}
+      :: { epochLength :: BigInt
+         , slotLength :: { milliseconds :: BigInt }
+         , safeZone :: Maybe BigInt
+         }
       -> Either JsonDecodeError EraSummaryParameters
     decodeEraSummaryParameters xs = do
       let
@@ -697,7 +703,7 @@ instance Show TxEvaluationR where
 instance DecodeAeson TxEvaluationR where
   decodeAeson aeson =
     (wrap <<< Right <$> decodeAeson aeson)
-    <|> (wrap <<< Left <$> decodeAeson aeson)
+      <|> (wrap <<< Left <$> decodeAeson aeson)
 
 newtype TxEvaluationResult = TxEvaluationResult
   (Map RedeemerPointer ExecutionUnits)
@@ -713,9 +719,13 @@ instance DecodeAeson TxEvaluationResult where
     arr :: Array Aeson <- getField o "result"
     let
       f a = do
-        x :: {validator :: {index :: Natural, purpose :: String}, budget :: ExecutionUnits} <- decodeAeson a
-        redeemerTag <- note redeemerPtrTypeMismatch $ RedeemerTag.fromString x.validator.purpose
-        pure ({redeemerTag, redeemerIndex: x.validator.index} /\ x.budget)
+        x
+          :: { validator :: { index :: Natural, purpose :: String }
+             , budget :: ExecutionUnits
+             } <- decodeAeson a
+        redeemerTag <- note redeemerPtrTypeMismatch $ RedeemerTag.fromString
+          x.validator.purpose
+        pure ({ redeemerTag, redeemerIndex: x.validator.index } /\ x.budget)
 
     TxEvaluationResult <<< Map.fromFoldable <$>
       traverse f arr
@@ -917,6 +927,8 @@ type ProtocolParametersRaw =
   , "maxValueSize" :: { "bytes" :: UInt }
   , "collateralPercentage" :: UInt
   , "maxCollateralInputs" :: UInt
+  , "minFeeReferenceScripts" ::
+      { "base" :: UInt, "range" :: UInt, "multiplier" :: UInt }
   }
 
 newtype OgmiosProtocolParameters = OgmiosProtocolParameters ProtocolParameters
@@ -961,6 +973,9 @@ instance DecodeAeson OgmiosProtocolParameters where
       , maxValueSize: ps.maxValueSize.bytes
       , collateralPercent: ps.collateralPercentage
       , maxCollateralInputs: ps.maxCollateralInputs
+      , minFeeRefScriptBase: ps.minFeeReferenceScripts.base
+      , minFeeRefScriptRange: ps.minFeeReferenceScripts.range
+      , minFeeRefScriptMultiplier: ps.minFeeReferenceScripts.multiplier
       }
     where
     decodeExUnits
@@ -991,16 +1006,17 @@ instance DecodeAeson ChainTipQR where
 
     point res <|> origin res
     where
-      point x = do
-        {slot, id} :: {slot :: Slot, id :: OgmiosBlockHeaderHash} <- decodeAeson x
-        pure $ CtChainPoint $ {slot, hash: id}
+    point x = do
+      { slot, id } :: { slot :: Slot, id :: OgmiosBlockHeaderHash } <-
+        decodeAeson x
+      pure $ CtChainPoint $ { slot, hash: id }
 
-      origin =
-        aesonString
-          (case _ of
-              "origin" -> pure $ CtChainOrigin $ ChainOrigin "origin"
-              s -> Left $ TypeMismatch $ "Expected value \"origin\", got " <> s
-              )
+    origin =
+      aesonString
+        ( case _ of
+            "origin" -> pure $ CtChainOrigin $ ChainOrigin "origin"
+            s -> Left $ TypeMismatch $ "Expected value \"origin\", got " <> s
+        )
 
 -- | A Blake2b 32-byte digest of an era-independent block header, serialized as
 -- CBOR in base16
@@ -1057,7 +1073,7 @@ instance EncodeAeson AdditionalUtxoSet where
 
     encode :: (OgmiosTxOutRef /\ OgmiosTxOut) -> Aeson
     encode (inp /\ out) = encodeAeson $
-      { "transaction": {"id": inp.txId}
+      { "transaction": { "id": inp.txId }
       , "index": inp.index
       , "address": out.address
       , "datumHash": out.datumHash
@@ -1067,29 +1083,39 @@ instance EncodeAeson AdditionalUtxoSet where
       }
 
     encodeNativeScript :: NativeScript -> Aeson
-    encodeNativeScript (ScriptPubkey s) = encodeAeson {clause: "signature", "from": s}
+    encodeNativeScript (ScriptPubkey s) = encodeAeson
+      { clause: "signature", "from": s }
     encodeNativeScript (ScriptAll ss) =
       encodeAeson { clause: "all", from: encodeNativeScript <$> ss }
     encodeNativeScript (ScriptAny ss) =
       encodeAeson { clause: "any", from: encodeNativeScript <$> ss }
     encodeNativeScript (ScriptNOfK n ss) =
-      encodeAeson { clause: "some", atLeast: BigInt.fromInt n, from: encodeNativeScript <$> ss }
-    encodeNativeScript (TimelockStart (Slot n)) = encodeAeson { clause: "after", slot: n }
-    encodeNativeScript (TimelockExpiry (Slot n)) = encodeAeson { clause: "before", slot: n }
+      encodeAeson
+        { clause: "some"
+        , atLeast: BigInt.fromInt n
+        , from: encodeNativeScript <$> ss
+        }
+    encodeNativeScript (TimelockStart (Slot n)) = encodeAeson
+      { clause: "after", slot: n }
+    encodeNativeScript (TimelockExpiry (Slot n)) = encodeAeson
+      { clause: "before", slot: n }
 
     encodeScriptRef :: ScriptRef -> Aeson
     encodeScriptRef (NativeScriptRef s) =
-      encodeAeson { "language": "native"
-                  , json: encodeNativeScript s
-                  }
+      encodeAeson
+        { "language": "native"
+        , json: encodeNativeScript s
+        }
     encodeScriptRef (PlutusScriptRef (PlutusScript (s /\ PlutusV1))) =
-      encodeAeson { "language": "plutus:v1"
-                  , cbor: s
-                  }
+      encodeAeson
+        { "language": "plutus:v1"
+        , cbor: s
+        }
     encodeScriptRef (PlutusScriptRef (PlutusScript (s /\ PlutusV2))) =
-      encodeAeson { "language": "plutus:v2"
-                  , cbor: s
-                  }
+      encodeAeson
+        { "language": "plutus:v2"
+        , cbor: s
+        }
 
     encodeNonAdaAsset :: NonAdaAsset -> Aeson
     encodeNonAdaAsset assets = encodeMap $
@@ -1110,27 +1136,32 @@ instance EncodeAeson AdditionalUtxoSet where
     encodeValue val =
       encodeAeson $ Object.union ada foo
       where
-        ada :: Object (Object BigInt)
-        ada = Object.singleton "ada" (Object.singleton "lovelace" $ val # valueToCoin # getLovelace)
-        foo :: Object (Object BigInt)
-        foo =
-          foldl
-            (\m (cs /\ tn /\ n) ->
+      ada :: Object (Object BigInt)
+      ada = Object.singleton "ada"
+        (Object.singleton "lovelace" $ val # valueToCoin # getLovelace)
+
+      foo :: Object (Object BigInt)
+      foo =
+        foldl
+          ( \m (cs /\ tn /\ n) ->
               let
                 cs' = getCurrencySymbol cs
                 tn' = getTokenName tn
                 csHex = byteArrayToHex cs'
                 tnHex = byteArrayToHex tn'
-              in Object.alter
-                 (case _ of
-                     Nothing -> Just $ Object.singleton tnHex n
-                     Just tm' -> Just $ Object.union tm' $ Object.singleton tnHex n
-                 )
-                 csHex
-                 m
-              )
-            (Object.empty :: Object (Object BigInt))
-            (flattenNonAdaValue $ getNonAdaAsset val)
+              in
+                Object.alter
+                  ( case _ of
+                      Nothing -> Just $ Object.singleton tnHex n
+                      Just tm' -> Just $ Object.union tm' $ Object.singleton
+                        tnHex
+                        n
+                  )
+                  csHex
+                  m
+          )
+          (Object.empty :: Object (Object BigInt))
+          (flattenNonAdaValue $ getNonAdaAsset val)
 
 ---------------- UTXO QUERY RESPONSE & PARSING
 

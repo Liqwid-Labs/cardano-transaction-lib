@@ -307,7 +307,7 @@ getLedgerConstants params = case _ of
       { pparams: _, systemStart: _ }
         <$> withErrorOnLeft Blockfrost.getProtocolParameters
         <*> withErrorOnLeft Blockfrost.getSystemStart
-  BlockfrostBackend _ (Just {ogmios: {ws}}) ->
+  BlockfrostBackend _ (Just { ogmios: { ws } }) ->
     { pparams: _, systemStart: _ }
       <$> (unwrap <$> getProtocolParametersAff ws logger)
       <*> getSystemStartAff ws logger

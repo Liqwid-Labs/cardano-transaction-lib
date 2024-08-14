@@ -1525,6 +1525,7 @@ type BlockfrostProtocolParametersRaw =
   , "max_collateral_inputs" :: UInt
   , "coins_per_utxo_size" :: Maybe (Stringed BigInt)
   , "coins_per_utxo_word" :: Maybe (Stringed BigInt)
+  , "min_fee_ref_script_cost_per_byte" :: UInt
   }
 
 toFraction' :: Finite BigNumber -> String /\ String
@@ -1616,6 +1617,11 @@ instance DecodeAeson BlockfrostProtocolParameters where
       , maxValueSize: unwrap raw.max_val_size
       , collateralPercent: raw.collateral_percent
       , maxCollateralInputs: raw.max_collateral_inputs
+      , minFeeRefScriptBase: raw.min_fee_ref_script_cost_per_byte
+      -- Note(Przemek, 14th Aug 2024):
+      -- seem not to be present atm, zeroes will make ctl crash (as expected, rather than having very large fee)
+      , minFeeRefScriptRange: zero
+      , minFeeRefScriptMultiplier: zero
       }
 
 --------------------------------------------------------------------------------

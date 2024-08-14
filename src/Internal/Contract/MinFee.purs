@@ -2,6 +2,8 @@ module Ctl.Internal.Contract.MinFee (calculateMinFee) where
 
 import Prelude
 
+import Contract.Prim.ByteArray (byteLength)
+import Ctl.Internal.Cardano.Types.ScriptRef (getPlutusScript)
 import Ctl.Internal.Cardano.Types.Transaction
   ( Certificate
       ( StakeRegistration
@@ -16,11 +18,13 @@ import Ctl.Internal.Cardano.Types.Transaction
   , _certs
   , _collateral
   , _inputs
+  , _referenceInputs
   , _withdrawals
   )
 import Ctl.Internal.Cardano.Types.Value (Coin)
 import Ctl.Internal.Contract (getProtocolParameters)
 import Ctl.Internal.Contract.Monad (Contract)
+import Ctl.Internal.ProcessConstraints.State (_refScriptsUtxoMap)
 import Ctl.Internal.Serialization.Address
   ( addressPaymentCred
   , addressStakeCred
@@ -28,16 +32,18 @@ import Ctl.Internal.Serialization.Address
   , stakeCredentialToKeyHash
   )
 import Ctl.Internal.Serialization.MinFee (calculateMinFeeCsl)
+import Ctl.Internal.Types.ByteArray (ByteArray(..))
 import Ctl.Internal.Types.RewardAddress (unRewardAddress)
 import Data.Array (mapMaybe)
 import Data.Array as Array
-import Data.Foldable (length)
+import Data.Foldable (length, sum)
 import Data.Foldable as Foldable
 import Data.Lens.Getter ((^.))
 import Data.Map (keys, lookup) as Map
 import Data.Maybe (Maybe(Just, Nothing), fromMaybe)
 import Data.Newtype (unwrap)
 import Data.Set as Set
+import Data.Tuple (fst)
 
 -- | Calculate `min_fee` using CSL with protocol parameters from Ogmios.
 calculateMinFee :: Transaction -> UtxoMap -> Contract Coin
@@ -47,6 +53,7 @@ calculateMinFee tx allUtxos = do
   calculateMinFeeCsl
     pparams
     (1 + nInputKeys + nWithdrawalKeys + nCertificateKeys)
+    refScriptsSize
     tx
   where
   nInputKeys :: Int
@@ -61,6 +68,19 @@ calculateMinFee tx allUtxos = do
           )
       # Set.fromFoldable
       # length
+
+  refScriptsSize :: Int
+  refScriptsSize =
+    Array.fromFoldable (tx ^. _body <<< _referenceInputs)
+      # mapMaybe
+          ( flip Map.lookup allUtxos
+              >=> (unwrap >>> _.scriptRef)
+              -- Note(Przemek, 14th Aug 2024) - native script not supported as ref script input
+              >=> getPlutusScript
+
+          )
+      <#> (unwrap >>> fst >>> byteLength)
+      # sum
 
   nWithdrawalKeys :: Int
   nWithdrawalKeys =

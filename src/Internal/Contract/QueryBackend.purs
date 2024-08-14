@@ -15,9 +15,9 @@ module Ctl.Internal.Contract.QueryBackend
 
 import Prelude
 
-import Ctl.Internal.Types.ProtocolParameters (ProtocolParameters)
 import Ctl.Internal.QueryM (OgmiosWebSocket)
 import Ctl.Internal.ServerConfig (ServerConfig)
+import Ctl.Internal.Types.ProtocolParameters (ProtocolParameters)
 import Data.Maybe (Maybe(Just, Nothing))
 import Data.Time.Duration (Seconds(Seconds))
 import Effect.AVar (AVar)
