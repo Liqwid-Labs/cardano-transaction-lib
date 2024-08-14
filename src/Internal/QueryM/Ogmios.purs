@@ -927,8 +927,10 @@ type ProtocolParametersRaw =
   , "maxValueSize" :: { "bytes" :: UInt }
   , "collateralPercentage" :: UInt
   , "maxCollateralInputs" :: UInt
+  -- Note(Przemek, 14th Aug 2024):
+  -- Not ideal that numbers are provided, but math with ref script fee should not exceed number precision
   , "minFeeReferenceScripts" ::
-      { "base" :: UInt, "range" :: UInt, "multiplier" :: UInt }
+      { "base" :: Number, "range" :: UInt, "multiplier" :: Number }
   }
 
 newtype OgmiosProtocolParameters = OgmiosProtocolParameters ProtocolParameters

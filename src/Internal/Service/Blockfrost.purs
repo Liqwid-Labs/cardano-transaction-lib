@@ -249,6 +249,7 @@ import Data.Traversable (for, for_, traverse)
 import Data.Tuple (Tuple(Tuple), fst, snd, uncurry)
 import Data.Tuple.Nested (type (/\), (/\))
 import Data.UInt (UInt)
+import Data.UInt as UInt
 import Effect.Aff (Aff)
 import Effect.Aff.Class (liftAff)
 import Effect.Class (liftEffect)
@@ -1617,11 +1618,11 @@ instance DecodeAeson BlockfrostProtocolParameters where
       , maxValueSize: unwrap raw.max_val_size
       , collateralPercent: raw.collateral_percent
       , maxCollateralInputs: raw.max_collateral_inputs
-      , minFeeRefScriptBase: raw.min_fee_ref_script_cost_per_byte
+      , minFeeRefScriptBase: UInt.toNumber raw.min_fee_ref_script_cost_per_byte
       -- Note(Przemek, 14th Aug 2024):
-      -- seem not to be present atm, zeroes will make ctl crash (as expected, rather than having very large fee)
-      , minFeeRefScriptRange: zero
-      , minFeeRefScriptMultiplier: zero
+      -- Defaulting to currently known values, not present in the response yet
+      , minFeeRefScriptRange: UInt.fromInt 25600
+      , minFeeRefScriptMultiplier: 1.2
       }
 
 --------------------------------------------------------------------------------

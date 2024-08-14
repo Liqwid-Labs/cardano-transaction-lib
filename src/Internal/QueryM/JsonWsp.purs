@@ -59,8 +59,8 @@ mkCallType { method, params } = JsonWspCall $ \i -> do
   let
     req =
       case params of
-        Nothing -> encodeAeson {id, jsonrpc: "2.0", method }
-        Just f -> encodeAeson {id, jsonrpc: "2.0", method, params: f i }
+        Nothing -> encodeAeson { id, jsonrpc: "2.0", method }
+        Just f -> encodeAeson { id, jsonrpc: "2.0", method, params: f i }
 
   pure { body: req, id }
 

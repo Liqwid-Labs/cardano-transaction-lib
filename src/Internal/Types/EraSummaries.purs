@@ -14,8 +14,8 @@ import Prelude
 import Aeson
   ( class DecodeAeson
   , class EncodeAeson
-  , encodeAeson
   , decodeAeson
+  , encodeAeson
   , getField
   , partialFiniteNumber
   )

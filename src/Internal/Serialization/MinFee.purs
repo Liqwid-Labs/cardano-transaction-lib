@@ -20,6 +20,7 @@ import Ctl.Internal.Types.ProtocolParameters
   )
 import Data.Array as Array
 import Data.BigInt as BigInt
+import Data.Int as Int
 import Data.Lens ((.~))
 import Data.Maybe (Maybe(Just), fromJust, fromMaybe)
 import Data.Newtype (unwrap, wrap)
@@ -29,6 +30,7 @@ import Data.Tuple.Nested ((/\))
 import Data.UInt as UInt
 import Effect.Class (class MonadEffect, liftEffect)
 import Effect.Exception (Error, error)
+import Math (ceil, pow)
 import Partial.Unsafe (unsafePartial)
 
 calculateMinFeeCsl
@@ -54,15 +56,21 @@ calculateMinFeeCsl
   let exUnitPrices = pparams.prices
   exUnitPricesCsl <- liftEffect $ Serialization.convertExUnitPrices exUnitPrices
   let minScriptFee = BigNum.toBigInt (_minScriptFee exUnitPricesCsl cslTx)
-  let s = UInt.fromInt refScriptsSize
+  let s = Int.toNumber refScriptsSize
   let
-    minRefScriptFee = s * pparams.minFeeRefScriptBase *
-      pparams.minFeeRefScriptMultiplier `UInt.pow`
-        ( UInt.floor
-            (UInt.toNumber s / UInt.toNumber pparams.minFeeRefScriptRange)
-        )
-  pure $ wrap $ minFee + minScriptFee +
-    (BigInt.fromInt (UInt.toInt minRefScriptFee))
+    multiplierPart =
+      ( pparams.minFeeRefScriptMultiplier `pow`
+          ( UInt.toNumber
+              ( UInt.floor
+                  (s / UInt.toNumber pparams.minFeeRefScriptRange)
+              )
+          )
+      )
+  let
+    minRefScriptFee' = ceil $ s * pparams.minFeeRefScriptBase * multiplierPart
+  minRefScriptFee <- liftMaybe (error "minRefScriptFee conversion failed")
+    (BigInt.fromNumber minRefScriptFee')
+  pure $ wrap $ minFee + minScriptFee + minRefScriptFee
 
 -- | Adds fake signatures for each expected signature of a transaction.
 addFakeSignatures :: Int -> T.Transaction -> T.Transaction
