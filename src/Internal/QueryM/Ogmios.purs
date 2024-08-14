@@ -930,7 +930,8 @@ type ProtocolParametersRaw =
   -- Note(Przemek, 14th Aug 2024):
   -- Not ideal that numbers are provided, but math with ref script fee should not exceed number precision
   , "minFeeReferenceScripts" ::
-      { "base" :: Number, "range" :: UInt, "multiplier" :: Number }
+      Maybe
+        { "base" :: Number, "range" :: UInt, "multiplier" :: Number }
   }
 
 newtype OgmiosProtocolParameters = OgmiosProtocolParameters ProtocolParameters
@@ -946,6 +947,11 @@ instance DecodeAeson OgmiosProtocolParameters where
   decodeAeson = aesonObject $ \o -> do
     ps :: ProtocolParametersRaw <- getField o "result"
     prices <- decodePrices ps
+    -- Note(Przemek, 14th Aug 2024):
+    -- Backwards compatible before Conway
+    let
+      refScriptFee = fromMaybe { base: 0.0, range: one, multiplier: 0.0 }
+        ps.minFeeReferenceScripts
     pure $ OgmiosProtocolParameters $ ProtocolParameters
       { protocolVersion: ps.version.major /\ ps.version.minor
       -- The following two parameters were removed from Babbage
@@ -975,9 +981,9 @@ instance DecodeAeson OgmiosProtocolParameters where
       , maxValueSize: ps.maxValueSize.bytes
       , collateralPercent: ps.collateralPercentage
       , maxCollateralInputs: ps.maxCollateralInputs
-      , minFeeRefScriptBase: ps.minFeeReferenceScripts.base
-      , minFeeRefScriptRange: ps.minFeeReferenceScripts.range
-      , minFeeRefScriptMultiplier: ps.minFeeReferenceScripts.multiplier
+      , minFeeRefScriptBase: refScriptFee.base
+      , minFeeRefScriptRange: refScriptFee.range
+      , minFeeRefScriptMultiplier: refScriptFee.multiplier
       }
     where
     decodeExUnits

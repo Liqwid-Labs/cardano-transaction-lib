@@ -1526,7 +1526,7 @@ type BlockfrostProtocolParametersRaw =
   , "max_collateral_inputs" :: UInt
   , "coins_per_utxo_size" :: Maybe (Stringed BigInt)
   , "coins_per_utxo_word" :: Maybe (Stringed BigInt)
-  , "min_fee_ref_script_cost_per_byte" :: UInt
+  , "min_fee_ref_script_cost_per_byte" :: Maybe UInt
   }
 
 toFraction' :: Finite BigNumber -> String /\ String
@@ -1618,7 +1618,10 @@ instance DecodeAeson BlockfrostProtocolParameters where
       , maxValueSize: unwrap raw.max_val_size
       , collateralPercent: raw.collateral_percent
       , maxCollateralInputs: raw.max_collateral_inputs
-      , minFeeRefScriptBase: UInt.toNumber raw.min_fee_ref_script_cost_per_byte
+      -- Note(Przemek, 14th Aug 2024):
+      -- Backwards compatible before Conway
+      , minFeeRefScriptBase: fromMaybe zero $ UInt.toNumber <$>
+          raw.min_fee_ref_script_cost_per_byte
       -- Note(Przemek, 14th Aug 2024):
       -- Defaulting to currently known values, not present in the response yet
       , minFeeRefScriptRange: UInt.fromInt 25600
