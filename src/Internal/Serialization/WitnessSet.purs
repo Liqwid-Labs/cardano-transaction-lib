@@ -31,6 +31,7 @@ module Ctl.Internal.Serialization.WitnessSet
   , _wsSetRedeemers
   , _mkRedeemers
   , _wsSetPlutusScripts
+  , setIfNonNull
   ) where
 
 import Prelude
@@ -71,7 +72,9 @@ import Ctl.Internal.Types.BigNum (BigNum)
 import Ctl.Internal.Types.BigNum (fromBigInt) as BigNum
 import Ctl.Internal.Types.ByteArray (ByteArray)
 import Ctl.Internal.Types.RedeemerTag as Tag
-import Data.Maybe (maybe)
+import Data.Foldable (class Foldable)
+import Data.Foldable as Foldable
+import Data.Maybe (Maybe(..), maybe)
 import Data.Traversable (for_, traverse, traverse_)
 import Data.Tuple.Nested ((/\))
 import Effect (Effect)
@@ -94,22 +97,38 @@ setWitnesses
   -> Effect Unit
 setWitnesses f ws = f containerHelper ws
 
+-- | Note(Przemek, 13th Aug 2024):
+-- | To comply with Conway spec, empty fields must be encoded as Nothing rather than Just []
+setIfNonNull
+  :: forall m f a
+   . Applicative m
+  => Foldable f
+  => Maybe (f a)
+  -> (f a -> m Unit)
+  -> m Unit
+setIfNonNull marr f =
+  case marr of
+    Nothing -> pure unit
+    Just arr ->
+      if Foldable.null arr then pure unit
+      else f arr
+
 convertWitnessSet :: T.TransactionWitnessSet -> Effect TransactionWitnessSet
 convertWitnessSet (T.TransactionWitnessSet tws) = do
   ws <- newTransactionWitnessSet
-  for_ tws.vkeys
+  setIfNonNull tws.vkeys
     (convertVkeywitnesses >=> transactionWitnessSetSetVkeys ws)
-  for_ tws.nativeScripts $
+  setIfNonNull tws.nativeScripts $
     transactionWitnessSetSetNativeScripts ws <<< convertNativeScripts
-  for_ tws.bootstraps
+  setIfNonNull tws.bootstraps
     (traverse convertBootstrap >=> _wsSetBootstraps containerHelper ws)
-  for_ tws.plutusScripts \ps -> do
+  setIfNonNull tws.plutusScripts \ps -> do
     scripts <- newPlutusScripts
     for_ ps (convertPlutusScript >>> addPlutusScript scripts)
     txWitnessSetSetPlutusScripts ws scripts
-  for_ tws.plutusData
+  setIfNonNull tws.plutusData
     (map convertPlutusData >>> _wsSetPlutusData containerHelper ws)
-  for_ tws.redeemers
+  setIfNonNull tws.redeemers
     (traverse convertRedeemer >=> _wsSetRedeemers containerHelper ws)
   pure ws
 

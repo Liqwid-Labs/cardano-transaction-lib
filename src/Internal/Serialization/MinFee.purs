@@ -19,14 +19,18 @@ import Ctl.Internal.Types.ProtocolParameters
   ( ProtocolParameters(ProtocolParameters)
   )
 import Data.Array as Array
+import Data.BigInt as BigInt
+import Data.Int as Int
 import Data.Lens ((.~))
 import Data.Maybe (Maybe(Just), fromJust, fromMaybe)
 import Data.Newtype (unwrap, wrap)
 import Data.Set (Set)
 import Data.Set as Set
 import Data.Tuple.Nested ((/\))
+import Data.UInt as UInt
 import Effect.Class (class MonadEffect, liftEffect)
 import Effect.Exception (Error, error)
+import Math (ceil, pow)
 import Partial.Unsafe (unsafePartial)
 
 calculateMinFeeCsl
@@ -35,9 +39,14 @@ calculateMinFeeCsl
   => MonadThrow Error m
   => ProtocolParameters
   -> Int
+  -> Int
   -> T.Transaction
   -> m Coin
-calculateMinFeeCsl (ProtocolParameters pparams) nKeySigners txNoSigs = do
+calculateMinFeeCsl
+  (ProtocolParameters pparams)
+  nKeySigners
+  refScriptsSize
+  txNoSigs = do
   let tx = addFakeSignatures nKeySigners txNoSigs
   cslTx <- liftEffect $ Serialization.convertTransaction tx
   minFee <- liftMaybe (error "Unable to calculate min_fee") $
@@ -47,7 +56,21 @@ calculateMinFeeCsl (ProtocolParameters pparams) nKeySigners txNoSigs = do
   let exUnitPrices = pparams.prices
   exUnitPricesCsl <- liftEffect $ Serialization.convertExUnitPrices exUnitPrices
   let minScriptFee = BigNum.toBigInt (_minScriptFee exUnitPricesCsl cslTx)
-  pure $ wrap $ minFee + minScriptFee
+  let s = Int.toNumber refScriptsSize
+  let
+    multiplierPart =
+      ( pparams.minFeeRefScriptMultiplier `pow`
+          ( UInt.toNumber
+              ( UInt.floor
+                  (s / UInt.toNumber pparams.minFeeRefScriptRange)
+              )
+          )
+      )
+  let
+    minRefScriptFee' = ceil $ s * pparams.minFeeRefScriptBase * multiplierPart
+  minRefScriptFee <- liftMaybe (error "minRefScriptFee conversion failed")
+    (BigInt.fromNumber minRefScriptFee')
+  pure $ wrap $ minFee + minScriptFee + minRefScriptFee
 
 -- | Adds fake signatures for each expected signature of a transaction.
 addFakeSignatures :: Int -> T.Transaction -> T.Transaction
