@@ -112,7 +112,7 @@ import Ctl.Internal.ProcessConstraints.State
   , totalMissingValue
   )
 import Ctl.Internal.ProcessConstraints.UnbalancedTx (UnbalancedTx)
-import Ctl.Internal.QueryM.Pools
+import Contract.Staking
   ( getPubKeyHashDelegationsAndRewards
   , getValidatorHashDelegationsAndRewards
   )
@@ -882,10 +882,8 @@ processConstraint mpsMap osMap c = do
       attachToCps attachNativeScript (unwrap stakeValidator)
     MustWithdrawStakePubKey spkh -> runExceptT do
       networkId <- lift getNetworkId
-      mbRewards <- lift $ lift $ wrapQueryM $ getPubKeyHashDelegationsAndRewards
-        spkh
-      ({ rewards }) <- ExceptT $ pure $ note (CannotWithdrawRewardsPubKey spkh)
-        mbRewards
+      mbRewards <- lift $ (lift $ getPubKeyHashDelegationsAndRewards spkh)
+      ({ rewards }) <- ExceptT $ pure $ note (CannotWithdrawRewardsPubKey spkh) mbRewards
       let
         rewardAddress =
           RewardAddress.stakePubKeyHashRewardAddress networkId spkh
@@ -894,8 +892,7 @@ processConstraint mpsMap osMap c = do
     MustWithdrawStakePlutusScript stakeValidator redeemerData -> runExceptT do
       let hash = plutusScriptStakeValidatorHash stakeValidator
       networkId <- lift getNetworkId
-      mbRewards <- lift $ lift $ wrapQueryM $
-        getValidatorHashDelegationsAndRewards hash
+      mbRewards <- lift $ lift $ getValidatorHashDelegationsAndRewards hash
       let
         rewardAddress = RewardAddress.stakeValidatorHashRewardAddress networkId
           hash
@@ -912,8 +909,7 @@ processConstraint mpsMap osMap c = do
     MustWithdrawStakeNativeScript stakeValidator -> runExceptT do
       let hash = nativeScriptStakeValidatorHash stakeValidator
       networkId <- lift getNetworkId
-      mbRewards <- lift $ lift $ wrapQueryM $
-        getValidatorHashDelegationsAndRewards hash
+      mbRewards <- lift $ lift $ getValidatorHashDelegationsAndRewards hash
       let
         rewardAddress = RewardAddress.stakeValidatorHashRewardAddress networkId
           hash

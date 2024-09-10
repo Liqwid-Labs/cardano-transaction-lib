@@ -67,7 +67,7 @@ getPoolParameters poolPubKeyHash = do
 getValidatorHashDelegationsAndRewards
   :: StakeValidatorHash -> QueryM (Maybe DelegationsAndRewards)
 getValidatorHashDelegationsAndRewards skh = do
-  DelegationsAndRewardsR mp <- mkOgmiosRequest Ogmios.queryDelegationsAndRewards
+  DelegationsAndRewardsR mp <- mkOgmiosRequest Ogmios.queryDelegationsAndRewardsScript
     _.delegationsAndRewards
     [ stringRep
     ]
@@ -83,7 +83,7 @@ getValidatorHashDelegationsAndRewards skh = do
 getPubKeyHashDelegationsAndRewards
   :: StakePubKeyHash -> QueryM (Maybe DelegationsAndRewards)
 getPubKeyHashDelegationsAndRewards pkh = do
-  DelegationsAndRewardsR mp <- mkOgmiosRequest Ogmios.queryDelegationsAndRewards
+  DelegationsAndRewardsR mp <- mkOgmiosRequest Ogmios.queryDelegationsAndRewardsKey
     _.delegationsAndRewards
     [ stringRep ]
   pure $ Map.lookup byteHex mp

@@ -60,7 +60,8 @@ module Ctl.Internal.QueryM.Ogmios
   , queryProtocolParametersCall
   , querySystemStartCall
   , queryPoolParameters
-  , queryDelegationsAndRewards
+  , queryDelegationsAndRewardsScript
+  , queryDelegationsAndRewardsKey
   , releaseMempoolCall
   , submitTxCall
   , slotLengthFactor
@@ -260,14 +261,16 @@ queryPoolParameters = mkOgmiosCallType
   , params: \params -> { query: { poolParameters: params } }
   }
 
-queryDelegationsAndRewards :: JsonWspCall (Array String) DelegationsAndRewardsR
-queryDelegationsAndRewards = mkOgmiosCallType
-  { method: "Query"
-  , params: \skhs ->
-      { query:
-          { delegationsAndRewards: skhs
-          }
-      }
+queryDelegationsAndRewardsKey :: JsonWspCall (Array String) DelegationsAndRewardsR
+queryDelegationsAndRewardsKey = mkOgmiosCallType
+  { method: "queryLedgerState/rewardAccountSummaries"
+  , params: \skhs -> { keys: skhs }
+  }
+
+queryDelegationsAndRewardsScript :: JsonWspCall (Array String) DelegationsAndRewardsR
+queryDelegationsAndRewardsScript = mkOgmiosCallType
+  { method: "queryLedgerState/rewardAccountSummaries"
+  , params: \skhs -> { scripts: skhs }
   }
 
 type OgmiosAddress = String
@@ -540,12 +543,12 @@ derive instance Generic DelegationsAndRewardsR _
 derive instance Newtype DelegationsAndRewardsR _
 
 instance DecodeAeson DelegationsAndRewardsR where
-  decodeAeson aeson = do
-    obj :: Object (Object Aeson) <- decodeAeson aeson
+  decodeAeson = aesonObject $ \o -> do
+    obj :: Object Aeson <- getField o "result"
     kvs <- for (Object.toUnfoldable obj :: Array _) \(Tuple k objParams) -> do
-      rewards <- map Coin <$> objParams .:? "rewards"
-      delegate <- objParams .:? "delegate"
-      pure $ k /\ { rewards, delegate }
+      r :: {rewards :: {ada :: {lovelace :: BigInt}}, delegate :: {id :: PoolPubKeyHash}} <- decodeAeson objParams
+
+      pure $ k /\ { rewards: Just $ Coin r.rewards.ada.lovelace, delegate: Just $ r.delegate.id }
     pure $ DelegationsAndRewardsR $ Map.fromFoldable kvs
 
 ---------------- POOL PARAMETERS QUERY RESPONSE & PARSING
