@@ -44,13 +44,15 @@ import Data.Maybe (Maybe(Just, Nothing), fromMaybe)
 import Data.Newtype (unwrap)
 import Data.Set as Set
 import Data.Tuple (fst)
+import Data.BigInt as BigInt
+import Data.Newtype (wrap)
 
 -- | Calculate `min_fee` using CSL with protocol parameters from Ogmios.
 calculateMinFee :: Transaction -> UtxoMap -> Contract Coin
 calculateMinFee tx allUtxos = do
   pparams <- getProtocolParameters
   -- add 1 for wallets that may include an additional stake key signature
-  calculateMinFeeCsl
+  (\x -> x + (wrap $ BigInt.fromInt 50000)) <$> calculateMinFeeCsl
     pparams
     (1 + nInputKeys + nWithdrawalKeys + nCertificateKeys)
     refScriptsSize

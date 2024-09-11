@@ -160,6 +160,7 @@ import Data.Array.NonEmpty
 import Data.Array.NonEmpty as NEA
 import Data.Bifunctor (lmap)
 import Data.BigInt (BigInt)
+import Data.BigInt as BigInt
 import Data.Either (Either(Left, Right), hush, note)
 import Data.Foldable (fold, foldMap, foldr, length, null, sum)
 import Data.Function (on)
@@ -334,7 +335,7 @@ initBalancerState
   -> BalancerState UnindexedTx
 initBalancerState transaction =
   buildUtxoIndex >>>
-    { transaction, leftoverUtxos: _, changeOutputs: mempty, minFee: zero }
+    { transaction, leftoverUtxos: _, changeOutputs: mempty, minFee: BigInt.fromInt 50000 }
 
 data BalancerStep
   = PrebalanceTx (BalancerState UnindexedTx)

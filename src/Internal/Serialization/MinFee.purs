@@ -70,7 +70,7 @@ calculateMinFeeCsl
     minRefScriptFee' = ceil $ s * pparams.minFeeRefScriptBase * multiplierPart
   minRefScriptFee <- liftMaybe (error "minRefScriptFee conversion failed")
     (BigInt.fromNumber minRefScriptFee')
-  pure $ wrap $ minFee + minScriptFee + minRefScriptFee
+  pure $ wrap $ minFee + minScriptFee + minRefScriptFee + (BigInt.fromInt 50000)
 
 -- | Adds fake signatures for each expected signature of a transaction.
 addFakeSignatures :: Int -> T.Transaction -> T.Transaction
