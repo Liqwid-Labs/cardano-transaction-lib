@@ -11,216 +11,46 @@ import Control.Monad.Reader.Class (asks)
 import Control.Monad.State.Trans (get, gets, put, runStateT)
 import Control.Monad.Trans.Class (lift)
 import Ctl.Internal.Address (addressPaymentValidatorHash)
-import Ctl.Internal.BalanceTx.RedeemerIndex
-  ( RedeemerPurpose(ForReward, ForCert, ForMint, ForSpend)
-  , UnindexedRedeemer(UnindexedRedeemer)
-  , unindexedRedeemerToRedeemer
-  )
+import Ctl.Internal.BalanceTx.RedeemerIndex (RedeemerPurpose(ForReward, ForCert, ForMint, ForSpend), UnindexedRedeemer(UnindexedRedeemer), unindexedRedeemerToRedeemer)
 import Ctl.Internal.Cardano.Types.ScriptRef (ScriptRef(NativeScriptRef))
-import Ctl.Internal.Cardano.Types.Transaction
-  ( Certificate
-      ( StakeDelegation
-      , PoolRetirement
-      , PoolRegistration
-      , StakeDeregistration
-      , StakeRegistration
-      )
-  , Transaction
-  , TransactionOutput(TransactionOutput)
-  , TransactionWitnessSet(TransactionWitnessSet)
-  , _body
-  , _certs
-  , _inputs
-  , _isValid
-  , _mint
-  , _networkId
-  , _outputs
-  , _referenceInputs
-  , _requiredSigners
-  , _scriptDataHash
-  , _withdrawals
-  , _witnessSet
-  )
-import Ctl.Internal.Cardano.Types.Value
-  ( Coin(Coin)
-  , getNonAdaAsset
-  , isZero
-  , mkSingletonValue'
-  , mpsSymbol
-  )
+import Ctl.Internal.Cardano.Types.Transaction (Certificate(StakeDelegation, PoolRetirement, PoolRegistration, StakeDeregistration, StakeRegistration), Transaction, TransactionOutput(TransactionOutput), TransactionWitnessSet(TransactionWitnessSet), _body, _certs, _inputs, _isValid, _mint, _networkId, _outputs, _referenceInputs, _requiredSigners, _scriptDataHash, _withdrawals, _witnessSet)
+import Ctl.Internal.Cardano.Types.Value (Coin(Coin), getNonAdaAsset, isZero, mkSingletonValue', mpsSymbol)
 import Ctl.Internal.Contract (getProtocolParameters)
 import Ctl.Internal.Contract.Monad (Contract, getQueryHandle, wrapQueryM)
 import Ctl.Internal.Hashing (datumHash) as Hashing
 import Ctl.Internal.Helpers (liftEither, liftM)
 import Ctl.Internal.IsData (class IsData)
 import Ctl.Internal.NativeScripts (nativeScriptHash)
-import Ctl.Internal.Plutus.Conversion
-  ( fromPlutusTxOutputWithRefScript
-  , fromPlutusValue
-  )
-import Ctl.Internal.Plutus.Types.Credential
-  ( Credential(ScriptCredential, PubKeyCredential)
-  )
+import Ctl.Internal.Plutus.Conversion (fromPlutusTxOutputWithRefScript, fromPlutusValue)
+import Ctl.Internal.Plutus.Types.Credential (Credential(ScriptCredential, PubKeyCredential))
 import Ctl.Internal.Plutus.Types.Transaction (TransactionOutputWithRefScript) as Plutus
-import Ctl.Internal.Plutus.Types.TransactionUnspentOutput
-  ( TransactionUnspentOutput(TransactionUnspentOutput)
-  )
-import Ctl.Internal.ProcessConstraints.Error
-  ( MkUnbalancedTxError
-      ( ModifyTx
-      , CannotSatisfyAny
-      , CannotWithdrawRewardsNativeScript
-      , CannotWithdrawRewardsPlutusScript
-      , CannotWithdrawRewardsPubKey
-      , DatumWrongHash
-      , CannotMakeValue
-      , MintingPolicyHashNotCurrencySymbol
-      , CannotMintZero
-      , ExpectedPlutusScriptGotNativeScript
-      , CannotFindDatum
-      , CannotQueryDatum
-      , CannotGetValidatorHashFromAddress
-      , TxOutRefWrongType
-      , CannotConvertPOSIXTimeRange
-      , WrongRefScriptHash
-      , ValidatorHashNotFound
-      , MintingPolicyNotFound
-      , DatumNotFound
-      , TxOutRefNotFound
-      , CannotSolveTimeConstraints
-      , TypedTxOutHasNoDatumHash
-      , TypedValidatorMissing
-      , TypeCheckFailed
-      , OwnPubKeyAndStakeKeyMissing
-      )
-  )
-import Ctl.Internal.ProcessConstraints.State
-  ( ConstraintProcessingState
-  , ConstraintsM
-  , ValueSpentBalances(ValueSpentBalances)
-  , _costModels
-  , _cpsTransaction
-  , _cpsUsedUtxos
-  , _datums
-  , _lookups
-  , _redeemers
-  , _refScriptsUtxoMap
-  , _valueSpentBalancesInputs
-  , _valueSpentBalancesOutputs
-  , provideValue
-  , requireValue
-  , totalMissingValue
-  )
+import Ctl.Internal.Plutus.Types.TransactionUnspentOutput (TransactionUnspentOutput(TransactionUnspentOutput))
+import Ctl.Internal.ProcessConstraints.Error (MkUnbalancedTxError(ModifyTx, CannotSatisfyAny, CannotWithdrawRewardsNativeScript, CannotWithdrawRewardsPlutusScript, CannotWithdrawRewardsPubKey, DatumWrongHash, CannotMakeValue, MintingPolicyHashNotCurrencySymbol, CannotMintZero, ExpectedPlutusScriptGotNativeScript, CannotFindDatum, CannotQueryDatum, CannotGetValidatorHashFromAddress, TxOutRefWrongType, CannotConvertPOSIXTimeRange, WrongRefScriptHash, ValidatorHashNotFound, MintingPolicyNotFound, DatumNotFound, TxOutRefNotFound, CannotSolveTimeConstraints, TypedTxOutHasNoDatumHash, TypedValidatorMissing, TypeCheckFailed, OwnPubKeyAndStakeKeyMissing))
+import Ctl.Internal.ProcessConstraints.State (ConstraintProcessingState, ConstraintsM, ValueSpentBalances(ValueSpentBalances), _costModels, _cpsTransaction, _cpsUsedUtxos, _datums, _lookups, _redeemers, _refScriptsUtxoMap, _valueSpentBalancesInputs, _valueSpentBalancesOutputs, provideValue, requireValue, totalMissingValue)
 import Ctl.Internal.ProcessConstraints.UnbalancedTx (UnbalancedTx)
-import Ctl.Internal.QueryM.Pools
-  ( getPubKeyHashDelegationsAndRewards
-  , getValidatorHashDelegationsAndRewards
-  )
-import Ctl.Internal.Scripts
-  ( mintingPolicyHash
-  , nativeScriptStakeValidatorHash
-  , validatorHash
-  , validatorHashEnterpriseAddress
-  )
-import Ctl.Internal.Serialization.Address
-  ( NetworkId
-  , StakeCredential
-  , baseAddress
-  , baseAddressToAddress
-  , keyHashCredential
-  , scriptHashCredential
-  )
+import Ctl.Internal.QueryM.Pools (getPubKeyHashDelegationsAndRewards, getValidatorHashDelegationsAndRewards)
+import Ctl.Internal.Scripts (mintingPolicyHash, nativeScriptStakeValidatorHash, validatorHash, validatorHashEnterpriseAddress)
+import Ctl.Internal.Serialization.Address (NetworkId, StakeCredential, baseAddress, baseAddressToAddress, keyHashCredential, scriptHashCredential)
 import Ctl.Internal.Serialization.Hash (ScriptHash)
 import Ctl.Internal.ToData (class ToData)
-import Ctl.Internal.Transaction
-  ( ModifyTxError
-  , attachDatum
-  , attachNativeScript
-  , attachPlutusScript
-  , setScriptDataHash
-  )
+import Ctl.Internal.Transaction (ModifyTxError, attachDatum, attachNativeScript, attachPlutusScript, setScriptDataHash)
 import Ctl.Internal.Types.Datum (DataHash, Datum)
-import Ctl.Internal.Types.Interval
-  ( POSIXTimeRange
-  , always
-  , intersection
-  , isEmpty
-  , posixTimeRangeToTransactionValidity
-  )
-import Ctl.Internal.Types.OutputDatum
-  ( OutputDatum(NoOutputDatum, OutputDatumHash, OutputDatum)
-  )
-import Ctl.Internal.Types.PubKeyHash
-  ( payPubKeyHashBaseAddress
-  , payPubKeyHashEnterpriseAddress
-  , stakePubKeyHashRewardAddress
-  )
-import Ctl.Internal.Types.RewardAddress
-  ( stakePubKeyHashRewardAddress
-  , stakeValidatorHashRewardAddress
-  ) as RewardAddress
+import Ctl.Internal.Types.Interval (POSIXTimeRange, always, intersection, isEmpty, posixTimeRangeToTransactionValidity)
+import Ctl.Internal.Types.OutputDatum (OutputDatum(NoOutputDatum, OutputDatumHash, OutputDatum))
+import Ctl.Internal.Types.PubKeyHash (payPubKeyHashBaseAddress, payPubKeyHashEnterpriseAddress, stakePubKeyHashRewardAddress)
+import Ctl.Internal.Types.RewardAddress (stakePubKeyHashRewardAddress, stakeValidatorHashRewardAddress) as RewardAddress
 import Ctl.Internal.Types.ScriptLookups (ScriptLookups(ScriptLookups))
-import Ctl.Internal.Types.Scripts
-  ( MintingPolicy(NativeMintingPolicy, PlutusMintingPolicy)
-  , MintingPolicyHash
-  , Validator
-  , ValidatorHash
-  )
+import Ctl.Internal.Types.Scripts (MintingPolicy(NativeMintingPolicy, PlutusMintingPolicy), MintingPolicyHash, Validator, ValidatorHash)
 import Ctl.Internal.Types.Transaction (TransactionInput)
-import Ctl.Internal.Types.TxConstraints
-  ( DatumPresence(DatumWitness, DatumInline)
-  , InputConstraint(InputConstraint)
-  , InputWithScriptRef(RefInput, SpendInput)
-  , OutputConstraint(OutputConstraint)
-  , TxConstraint
-      ( MustBeSignedBy
-      , MustDelegateStakePubKey
-      , MustDelegateStakePlutusScript
-      , MustDelegateStakeNativeScript
-      , MustDeregisterStakePubKey
-      , MustDeregisterStakePlutusScript
-      , MustDeregisterStakeNativeScript
-      , MustHashDatum
-      , MustIncludeDatum
-      , MustMintValue
-      , MustNotBeValid
-      , MustPayToNativeScript
-      , MustPayToPubKeyAddress
-      , MustPayToScript
-      , MustProduceAtLeast
-      , MustReferenceOutput
-      , MustRegisterPool
-      , MustRegisterStakePubKey
-      , MustRegisterStakeScript
-      , MustRetirePool
-      , MustSatisfyAnyOf
-      , MustSpendAtLeast
-      , MustSpendNativeScriptOutput
-      , MustSpendPubKeyOutput
-      , MustSpendScriptOutput
-      , MustValidateIn
-      , MustWithdrawStakePubKey
-      , MustWithdrawStakePlutusScript
-      , MustWithdrawStakeNativeScript
-      , MustMintValueUsingNativeScript
-      )
-  , TxConstraints(TxConstraints)
-  , utxoWithScriptRef
-  )
-import Ctl.Internal.Types.TypedTxOut
-  ( mkTypedTxOut
-  , typeTxOutRef
-  , typedTxOutDatumHash
-  , typedTxOutRefValue
-  , typedTxOutTxOut
-  )
+import Ctl.Internal.Types.TxConstraints (DatumPresence(DatumWitness, DatumInline), InputConstraint(InputConstraint), InputWithScriptRef(RefInput, SpendInput), OutputConstraint(OutputConstraint), TxConstraint(MustBeSignedBy, MustDelegateStakePubKey, MustDelegateStakePlutusScript, MustDelegateStakeNativeScript, MustDeregisterStakePubKey, MustDeregisterStakePlutusScript, MustDeregisterStakeNativeScript, MustHashDatum, MustIncludeDatum, MustMintValue, MustNotBeValid, MustPayToNativeScript, MustPayToPubKeyAddress, MustPayToScript, MustProduceAtLeast, MustReferenceOutput, MustRegisterPool, MustRegisterStakePubKey, MustRegisterStakeScript, MustRetirePool, MustSatisfyAnyOf, MustSpendAtLeast, MustSpendNativeScriptOutput, MustSpendPubKeyOutput, MustSpendScriptOutput, MustValidateIn, MustWithdrawStakePubKey, MustWithdrawStakePlutusScript, MustWithdrawStakeNativeScript, MustMintValueUsingNativeScript), TxConstraints(TxConstraints), utxoWithScriptRef)
+import Ctl.Internal.Types.TypedTxOut (mkTypedTxOut, typeTxOutRef, typedTxOutDatumHash, typedTxOutRefValue, typedTxOutTxOut)
 import Ctl.Internal.Types.TypedValidator (class DatumType, class ValidatorTypes)
+import Data.Array (cons, elem, singleton, snoc, (:)) as Array
 import Data.Array (cons, partition, toUnfoldable, zip)
-import Data.Array (singleton, (:)) as Array
 import Data.Bifunctor (lmap)
 import Data.Either (Either(Left, Right), either, hush, isRight, note)
 import Data.Foldable (foldM)
-import Data.Lens (non, (%=), (%~), (.=), (.~), (<>=))
+import Data.Lens (modifying, non, (%=), (%~), (.=), (.~), (<>=))
 import Data.Lens.Getter (to, use)
 import Data.Lens.Iso.Newtype (_Newtype)
 import Data.List (List(Nil, Cons))
@@ -620,8 +450,18 @@ processConstraint mpsMap osMap c = do
       -- the corresponding `paymentPubKey` lookup. In the next major version,
       -- we might wish to revise this
       -- See https://github.com/Plutonomicon/cardano-transaction-lib/issues/569
-      _cpsTransaction <<< _body <<< _requiredSigners <>= Just
-        [ wrap $ unwrap $ unwrap pkh ]
+      let pkh' = wrap $ unwrap $ unwrap pkh
+      (_cpsTransaction <<< _body <<< _requiredSigners) 
+      -- Note (Przemek, 13th Sep 2024):
+      -- CSL won't treat required sig as set, so handling here
+        `modifying` 
+          (\x -> case x of 
+             Nothing -> Just [pkh']
+             Just pkhs ->
+               if pkh' `Array.elem` pkhs
+                 then Just pkhs
+                 else Just (pkhs `Array.snoc` pkh')
+             )
     MustSpendAtLeast plutusValue -> do
       let value = fromPlutusValue plutusValue
       runExceptT $ _valueSpentBalancesInputs <>= requireValue value
