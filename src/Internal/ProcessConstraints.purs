@@ -215,12 +215,12 @@ import Ctl.Internal.Types.TypedTxOut
   , typedTxOutTxOut
   )
 import Ctl.Internal.Types.TypedValidator (class DatumType, class ValidatorTypes)
+import Data.Array (cons, elem, singleton, snoc, (:)) as Array
 import Data.Array (cons, partition, toUnfoldable, zip)
-import Data.Array (singleton, (:)) as Array
 import Data.Bifunctor (lmap)
 import Data.Either (Either(Left, Right), either, hush, isRight, note)
 import Data.Foldable (foldM)
-import Data.Lens (non, (%=), (%~), (.=), (.~), (<>=))
+import Data.Lens (modifying, non, (%=), (%~), (.=), (.~), (<>=))
 import Data.Lens.Getter (to, use)
 import Data.Lens.Iso.Newtype (_Newtype)
 import Data.List (List(Nil, Cons))
@@ -620,8 +620,17 @@ processConstraint mpsMap osMap c = do
       -- the corresponding `paymentPubKey` lookup. In the next major version,
       -- we might wish to revise this
       -- See https://github.com/Plutonomicon/cardano-transaction-lib/issues/569
-      _cpsTransaction <<< _body <<< _requiredSigners <>= Just
-        [ wrap $ unwrap $ unwrap pkh ]
+      let pkh' = wrap $ unwrap $ unwrap pkh
+      (_cpsTransaction <<< _body <<< _requiredSigners)
+        -- Note (Przemek, 13th Sep 2024):
+        -- CSL won't treat required sig as set, so handling here
+        `modifying`
+          ( \x -> case x of
+              Nothing -> Just [ pkh' ]
+              Just pkhs ->
+                if pkh' `Array.elem` pkhs then Just pkhs
+                else Just (pkhs `Array.snoc` pkh')
+          )
     MustSpendAtLeast plutusValue -> do
       let value = fromPlutusValue plutusValue
       runExceptT $ _valueSpentBalancesInputs <>= requireValue value
