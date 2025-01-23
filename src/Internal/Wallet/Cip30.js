@@ -11,7 +11,7 @@ const stripSetTags = (hexEncodedCbor) => {
     const unwrapSetTag = (v) => v;
     const opts = {tags: { 258: unwrapSetTag }};
 
-    const decoded = cbor.decodeFirstSync(Buffer.from(sample1, 'hex'), opts);
+    const decoded = cbor.decodeFirstSync(Buffer.from(hexEncodedCbor, 'hex'), opts);
     const reencoded = cbor.encodeCanonical(decoded);
     return reencoded.toString('hex');
 
