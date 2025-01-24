@@ -5,17 +5,16 @@ const stripSetTags = (hexEncodedCbor) => {
   // set tag (258), which our version does not support. As both encodings are
   // supported until the next hard-fork, this only affects browser wallets.
   if (typeof BROWSER_RUNTIME !== 'undefined' && BROWSER_RUNTIME) {
-    const cbor2 = require('cbor2');
-    const cbor2Encoder = require('cbor2/encoder');
-    const cbor2Utils = require('cbor2/utils');
+    const cbor = require("cbor-web");
+    const bdec = require("cbor-bigdecimal");
+    bdec(cbor);
+    const unwrapSetTag = (v) => v;
+    const opts = {tags: { 258: unwrapSetTag }};
 
-    // Decode the cbor and re-encode it stripping out the set tag (258).
-    const decoded = cbor2.decode(cbor2Utils.hexToU8(hexEncodedCbor));
-    const previousSetEncoder = cbor2Encoder.registerEncoder(Set, (obj) => [undefined, [...obj]]);
-    const encodedWithoutSetTag = cbor2.encode(decoded);
-    // Restore the previous encoder for Sets.
-    cbor2Encoder.registerEncoder(Set, previousSetEncoder);
-    return cbor2Utils.u8toHex(encodedWithoutSetTag);
+    const decoded = cbor.decodeFirstSync(Buffer.from(hexEncodedCbor, 'hex'), opts);
+    const reencoded = cbor.encodeCanonical(decoded);
+    return reencoded.toString('hex');
+
   } else {
     return hexEncodedCbor;
   }
