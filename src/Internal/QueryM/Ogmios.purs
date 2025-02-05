@@ -137,7 +137,7 @@ import Ctl.Internal.Cardano.Types.Value
   )
 import Ctl.Internal.Deserialization.FromBytes (fromBytes)
 import Ctl.Internal.Helpers (encodeMap, showWithParens)
-import Ctl.Internal.QueryM.JsonWsp (JsonWspCall, mkCallType)
+import Ctl.Internal.QueryM.JsonWsp (JsonWspCall, JsonWspRequest, mkCallType)
 import Ctl.Internal.Serialization.Address (Slot(Slot))
 import Ctl.Internal.Serialization.Hash (Ed25519KeyHash, ed25519KeyHashFromBytes)
 import Ctl.Internal.Types.BigNum (BigNum)
@@ -155,7 +155,6 @@ import Ctl.Internal.Types.EraSummaries
   , EraSummary(EraSummary)
   , EraSummaryParameters(EraSummaryParameters)
   )
-import Ctl.Internal.Types.Int as InternalInt
 import Ctl.Internal.Types.Natural (Natural)
 import Ctl.Internal.Types.Natural (fromString) as Natural
 import Ctl.Internal.Types.ProtocolParameters
@@ -223,47 +222,57 @@ import Untagged.Union (type (|+|), toEither1)
 -- Local State Query Protocol
 -- https://ogmios.dev/mini-protocols/local-state-query/
 --------------------------------------------------------------------------------
-
 -- | Queries Ogmios for the system start Datetime
 querySystemStartCall :: JsonWspCall Unit OgmiosSystemStart
-querySystemStartCall = mkOgmiosCallTypeNoArgs "queryNetwork/startTime"
+querySystemStartCall = mkOgmiosCallType
+  { methodname: "Query"
+  , args: const { query: "systemStart" }
+  }
 
 -- | Queries Ogmios for the current epoch
 queryCurrentEpochCall :: JsonWspCall Unit CurrentEpoch
 queryCurrentEpochCall = mkOgmiosCallType
-  { method: "Query"
-  , params: const { query: "currentEpoch" }
+  { methodname: "Query"
+  , args: const { query: "currentEpoch" }
   }
 
 -- | Queries Ogmios for an array of era summaries, used for Slot arithmetic.
 queryEraSummariesCall :: JsonWspCall Unit OgmiosEraSummaries
-queryEraSummariesCall = mkOgmiosCallTypeNoArgs "queryLedgerState/eraSummaries"
+queryEraSummariesCall = mkOgmiosCallType
+  { methodname: "Query"
+  , args: const { query: "eraSummaries" }
+  }
 
 -- | Queries Ogmios for the current protocol parameters
 queryProtocolParametersCall :: JsonWspCall Unit OgmiosProtocolParameters
-queryProtocolParametersCall = mkOgmiosCallTypeNoArgs
-  "queryLedgerState/protocolParameters"
+queryProtocolParametersCall = mkOgmiosCallType
+  { methodname: "Query"
+  , args: const { query: "currentProtocolParameters" }
+  }
 
 -- | Queries Ogmios for the chain’s current tip.
 queryChainTipCall :: JsonWspCall Unit ChainTipQR
-queryChainTipCall = mkOgmiosCallTypeNoArgs "queryNetwork/tip"
+queryChainTipCall = mkOgmiosCallType
+  { methodname: "Query"
+  , args: const { query: "chainTip" }
+  }
 
 queryPoolIdsCall :: JsonWspCall Unit PoolIdsR
 queryPoolIdsCall = mkOgmiosCallType
-  { method: "Query"
-  , params: const { query: "poolIds" }
+  { methodname: "Query"
+  , args: const { query: "poolIds" }
   }
 
 queryPoolParameters :: JsonWspCall (Array PoolPubKeyHash) PoolParametersR
 queryPoolParameters = mkOgmiosCallType
-  { method: "Query"
-  , params: \params -> { query: { poolParameters: params } }
+  { methodname: "Query"
+  , args: \params -> { query: { poolParameters: params } }
   }
 
 queryDelegationsAndRewards :: JsonWspCall (Array String) DelegationsAndRewardsR
 queryDelegationsAndRewards = mkOgmiosCallType
-  { method: "Query"
-  , params: \skhs ->
+  { methodname: "Query"
+  , args: \skhs ->
       { query:
           { delegationsAndRewards: skhs
           }
@@ -281,18 +290,18 @@ type OgmiosAddress = String
 -- | Cardano network via Ogmios.
 submitTxCall :: JsonWspCall (TxHash /\ CborBytes) SubmitTxR
 submitTxCall = mkOgmiosCallType
-  { method: "submitTransaction"
-  , params: (\x -> { transaction: { cbor: x } }) <<< cborBytesToHex <<< snd
+  { methodname: "SubmitTx"
+  , args: { submit: _ } <<< cborBytesToHex <<< snd
   }
 
 -- | Evaluates the execution units of scripts present in a given transaction,
 -- | without actually submitting the transaction.
 evaluateTxCall :: JsonWspCall (CborBytes /\ AdditionalUtxoSet) TxEvaluationR
 evaluateTxCall = mkOgmiosCallType
-  { method: "evaluateTransaction"
-  , params: \(cbor /\ additionalUtxo) ->
-      { transaction: { cbor: cborBytesToHex cbor }
-      , additionalUtxo: encodeAeson additionalUtxo
+  { methodname: "EvaluateTx"
+  , args: \(cbor /\ utxoqr) ->
+      { evaluate: cborBytesToHex cbor
+      , additionalUtxoSet: utxoqr
       }
   }
 
@@ -308,15 +317,15 @@ acquireMempoolSnapshotCall =
 mempoolSnapshotHasTxCall
   :: MempoolSnapshotAcquired -> JsonWspCall TxHash Boolean
 mempoolSnapshotHasTxCall _ = mkOgmiosCallType
-  { method: "HasTx"
-  , params: { id: _ }
+  { methodname: "HasTx"
+  , args: { id: _ }
   }
 
 mempoolSnapshotNextTxCall
   :: MempoolSnapshotAcquired -> JsonWspCall Unit (Maybe MempoolTransaction)
 mempoolSnapshotNextTxCall _ = mkOgmiosCallType
-  { method: "NextTx"
-  , params: const { fields: "all" }
+  { methodname: "NextTx"
+  , args: const { fields: "all" }
   }
 
 mempoolSnpashotSizeAndCapacityCall
@@ -385,28 +394,29 @@ instance DecodeAeson MempoolTransaction where
 --------------------------------------------------------------------------------
 -- Helpers
 --------------------------------------------------------------------------------
-
 mkOgmiosCallTypeNoArgs
   :: forall (o :: Type). String -> JsonWspCall Unit o
-mkOgmiosCallTypeNoArgs method =
-  mkCallType
-    ( { method: method, params: Nothing }
-        :: { method :: String, params :: Maybe (Unit -> {}) }
-    )
+mkOgmiosCallTypeNoArgs methodname =
+  mkOgmiosCallType { methodname, args: const {} }
 
 mkOgmiosCallType
   :: forall (a :: Type) (i :: Type) (o :: Type)
-   . EncodeAeson a
-  => { method :: String, params :: (i -> a) }
+   . EncodeAeson (JsonWspRequest a)
+  => { methodname :: String, args :: i -> a }
   -> JsonWspCall i o
-mkOgmiosCallType { method, params } =
-  mkCallType { method, params: Just params }
+mkOgmiosCallType =
+  ( mkCallType
+      { "type": "jsonwsp/request"
+      , version: "1.0"
+      , servicename: "ogmios"
+      }
+  )
 
 ---------------- TX SUBMISSION QUERY RESPONSE & PARSING
 
 data SubmitTxR
   = SubmitTxSuccess TxHash
-  | SubmitFail Aeson
+  | SubmitFail (Array Aeson)
 
 derive instance Generic SubmitTxR _
 
@@ -416,17 +426,12 @@ instance Show SubmitTxR where
 type TxHash = ByteArray
 
 instance DecodeAeson SubmitTxR where
-  decodeAeson x =
-    success x <|> failure x
-    where
-    success = aesonObject $ \o -> do
-      result :: { transaction :: { id :: String } } <- getField o "result"
-      maybe
-        (Left (TypeMismatch "Invalid TransactionHash"))
-        (pure <<< SubmitTxSuccess)
-        $ hexToByteArray result.transaction.id
-    failure = aesonObject $ \o ->
-      SubmitFail <$> getField o "error"
+  decodeAeson = aesonObject $
+    \o ->
+      ( getField o "SubmitSuccess" >>= flip getField "txId" >>= hexToByteArray
+          >>> maybe (Left (TypeMismatch "Expected hexstring"))
+            (pure <<< SubmitTxSuccess)
+      ) <|> (SubmitFail <$> getField o "SubmitFail")
 
 ---------------- SYSTEM START QUERY RESPONSE & PARSING
 newtype OgmiosSystemStart = OgmiosSystemStart SystemStart
@@ -439,12 +444,9 @@ instance Show OgmiosSystemStart where
   show = genericShow
 
 instance DecodeAeson OgmiosSystemStart where
-  decodeAeson = aesonObject $ \o -> do
-    res <- getField o "result"
-    caseAesonString
-      (Left (TypeMismatch "Timestamp string"))
+  decodeAeson =
+    caseAesonString (Left (TypeMismatch "Timestamp string"))
       (map wrap <<< lmap TypeMismatch <<< sysStartFromOgmiosTimestamp)
-      res
 
 instance EncodeAeson OgmiosSystemStart where
   encodeAeson = encodeAeson <<< sysStartToOgmiosTimestamp <<< unwrap
@@ -474,10 +476,7 @@ instance Show OgmiosEraSummaries where
   show = genericShow
 
 instance DecodeAeson OgmiosEraSummaries where
-  decodeAeson = aesonObject $ \o -> do
-    arr :: Array Aeson <- getField o "result"
-
-    wrap <<< wrap <$> traverse decodeEraSummary arr
+  decodeAeson = aesonArray (map (wrap <<< wrap) <<< traverse decodeEraSummary)
     where
     decodeEraSummary :: Aeson -> Either JsonDecodeError EraSummary
     decodeEraSummary = aesonObject \o -> do
@@ -492,16 +491,11 @@ instance DecodeAeson OgmiosEraSummaries where
       pure $ wrap { start, end, parameters }
 
     decodeEraSummaryParameters
-      :: { epochLength :: BigInt
-         , slotLength :: { milliseconds :: BigInt }
-         , safeZone :: Maybe BigInt
-         }
-      -> Either JsonDecodeError EraSummaryParameters
-    decodeEraSummaryParameters xs = do
-      let
-        epochLength = wrap $ xs.epochLength
-        slotLength = wrap $ BigInt.toNumber $ xs.slotLength.milliseconds
-        safeZone = wrap $ fromMaybe zero xs.safeZone
+      :: Object Aeson -> Either JsonDecodeError EraSummaryParameters
+    decodeEraSummaryParameters o = do
+      epochLength <- getField o "epochLength"
+      slotLength <- wrap <$> ((*) slotLengthFactor <$> getField o "slotLength")
+      safeZone <- fromMaybe zero <$> getField o "safeZone"
       pure $ wrap { epochLength, slotLength, safeZone }
 
 instance EncodeAeson OgmiosEraSummaries where
@@ -689,7 +683,7 @@ decodePoolMetadata aeson = do
 
 type RedeemerPointer = { redeemerTag :: RedeemerTag, redeemerIndex :: Natural }
 
-type ExecutionUnits = { memory :: Natural, cpu :: Natural }
+type ExecutionUnits = { memory :: Natural, steps :: Natural }
 
 newtype TxEvaluationR = TxEvaluationR
   (Either TxEvaluationFailure TxEvaluationResult)
@@ -715,20 +709,21 @@ instance Show TxEvaluationResult where
   show = genericShow
 
 instance DecodeAeson TxEvaluationResult where
-  decodeAeson = aesonObject $ \o -> do
-    arr :: Array Aeson <- getField o "result"
-    let
-      f a = do
-        x
-          :: { validator :: { index :: Natural, purpose :: String }
-             , budget :: ExecutionUnits
-             } <- decodeAeson a
-        redeemerTag <- note redeemerPtrTypeMismatch $ RedeemerTag.fromString
-          x.validator.purpose
-        pure ({ redeemerTag, redeemerIndex: x.validator.index } /\ x.budget)
-
+  decodeAeson = aesonObject $ \obj -> do
+    rdmrPtrExUnitsList :: Array (String /\ Aeson) <-
+      ForeignObject.toUnfoldable <$> getField obj "EvaluationResult"
     TxEvaluationResult <<< Map.fromFoldable <$>
-      traverse f arr
+      traverse decodeRdmrPtrExUnitsItem rdmrPtrExUnitsList
+    where
+    decodeRdmrPtrExUnitsItem
+      :: String /\ Aeson
+      -> Either JsonDecodeError (RedeemerPointer /\ ExecutionUnits)
+    decodeRdmrPtrExUnitsItem (redeemerPtrRaw /\ exUnitsAeson) = do
+      redeemerPtr <- decodeRedeemerPointer redeemerPtrRaw
+      flip aesonObject exUnitsAeson $ \exUnitsObj -> do
+        memory <- getField exUnitsObj "memory"
+        steps <- getField exUnitsObj "steps"
+        pure $ redeemerPtr /\ { memory, steps }
 
 redeemerPtrTypeMismatch :: JsonDecodeError
 redeemerPtrTypeMismatch = TypeMismatch
@@ -851,10 +846,39 @@ instance DecodeAeson ScriptFailure where
       pure $ NoCostModelForLanguage o
 
 instance DecodeAeson TxEvaluationFailure where
-  decodeAeson = aesonObject $ \o -> do
-    err :: Aeson <- getField o "error"
+  decodeAeson = aesonObject $ runReaderT cases
+    where
+    cases :: ObjectParser TxEvaluationFailure
+    cases = decodeScriptFailures <|> decodeAdditionalUtxoOverlap <|> defaultCase
 
-    pure $ UnparsedError $ show err
+    defaultCase :: ObjectParser TxEvaluationFailure
+    defaultCase = ReaderT \o ->
+      pure (UnparsedError (stringifyAeson (encodeAeson o)))
+
+    decodeScriptFailures :: ObjectParser TxEvaluationFailure
+    decodeScriptFailures = ReaderT \o -> do
+      scriptFailuresKV <- ForeignObject.toUnfoldable
+        <$> (getField o "EvaluationFailure" >>= flip getField "ScriptFailures")
+      scriptFailures <- Map.fromFoldable <$> for (scriptFailuresKV :: Array _)
+        \(k /\ v) -> do
+          v' <- decodeAeson v
+          (_ /\ v') <$> decodeRedeemerPointer k
+      pure $ ScriptFailures scriptFailures
+
+    decodeAdditionalUtxoOverlap :: ObjectParser TxEvaluationFailure
+    decodeAdditionalUtxoOverlap = ReaderT \o -> do
+      refObjs <-
+        ( getField o "EvaluationFailure" >>= flip getField
+            "AdditionalUtxoOverlap"
+        )
+      refs <- for (refObjs :: Array _)
+        \obj -> do
+          txId <-
+            decodeAeson =<< note MissingValue (ForeignObject.lookup "txId" obj)
+          index <-
+            decodeAeson =<< note MissingValue (ForeignObject.lookup "index" obj)
+          pure { txId, index }
+      pure $ AdditionalUtxoOverlap refs
 
 ---------------- PROTOCOL PARAMETERS QUERY RESPONSE & PARSING
 
@@ -891,47 +915,43 @@ rationalToSubcoin (PParamRational rat) = do
 -- | A type that corresponds to Ogmios response.
 type ProtocolParametersRaw =
   { "minFeeCoefficient" :: UInt
-  , "minFeeConstant" :: { "ada" :: { "lovelace" :: UInt } }
-  , "maxBlockBodySize" :: { "bytes" :: UInt }
-  , "maxBlockHeaderSize" :: { "bytes" :: UInt }
-  , "maxTransactionSize" :: { "bytes" :: UInt }
-  , "stakeCredentialDeposit" :: { "ada" :: { "lovelace" :: BigInt } }
-  , "stakePoolDeposit" :: { "ada" :: { "lovelace" :: BigInt } }
-  , "stakePoolRetirementEpochBound" :: BigInt
-  , "desiredNumberOfStakePools" :: UInt
-  , "stakePoolPledgeInfluence" :: PParamRational
+  , "minFeeConstant" :: UInt
+  , "maxBlockBodySize" :: UInt
+  , "maxBlockHeaderSize" :: UInt
+  , "maxTxSize" :: UInt
+  , "stakeKeyDeposit" :: BigInt
+  , "poolDeposit" :: BigInt
+  , "poolRetirementEpochBound" :: BigInt
+  , "desiredNumberOfPools" :: UInt
+  , "poolInfluence" :: PParamRational
   , "monetaryExpansion" :: PParamRational
   , "treasuryExpansion" :: PParamRational
-  , "version" ::
+  , "protocolVersion" ::
       { "major" :: UInt
       , "minor" :: UInt
       }
-  , "minStakePoolCost" :: { "ada" :: { "lovelace" :: BigInt } }
-  , "minUtxoDepositCoefficient" :: BigInt
-  , "plutusCostModels" ::
-      { "plutus:v1" :: Array InternalInt.Int
-      , "plutus:v2" :: Array InternalInt.Int
+  , "minPoolCost" :: BigInt
+  , "coinsPerUtxoByte" :: Maybe BigInt
+  , "coinsPerUtxoWord" :: Maybe BigInt
+  , "costModels" ::
+      { "plutus:v1" :: { | CostModelV1 }
+      , "plutus:v2" :: Maybe { | CostModelV2 }
       }
-  , "scriptExecutionPrices" ::
+  , "prices" ::
       { "memory" :: PParamRational
-      , "cpu" :: PParamRational
+      , "steps" :: PParamRational
       }
   , "maxExecutionUnitsPerTransaction" ::
       { "memory" :: BigInt
-      , "cpu" :: BigInt
+      , "steps" :: BigInt
       }
   , "maxExecutionUnitsPerBlock" ::
       { "memory" :: BigInt
-      , "cpu" :: BigInt
+      , "steps" :: BigInt
       }
-  , "maxValueSize" :: { "bytes" :: UInt }
+  , "maxValueSize" :: UInt
   , "collateralPercentage" :: UInt
   , "maxCollateralInputs" :: UInt
-  -- Note(Przemek, 14th Aug 2024):
-  -- Not ideal that numbers are provided, but math with ref script fee should not exceed number precision
-  , "minFeeReferenceScripts" ::
-      Maybe
-        { "base" :: Number, "range" :: UInt, "multiplier" :: Number }
   }
 
 newtype OgmiosProtocolParameters = OgmiosProtocolParameters ProtocolParameters
@@ -944,57 +964,60 @@ instance Show OgmiosProtocolParameters where
   show = genericShow
 
 instance DecodeAeson OgmiosProtocolParameters where
-  decodeAeson = aesonObject $ \o -> do
-    ps :: ProtocolParametersRaw <- getField o "result"
+  decodeAeson aeson = do
+    ps :: ProtocolParametersRaw <- decodeAeson aeson
     prices <- decodePrices ps
-    -- Note(Przemek, 14th Aug 2024):
-    -- Backwards compatible before Conway
-    let
-      refScriptFee = fromMaybe { base: 0.0, range: one, multiplier: 0.0 }
-        ps.minFeeReferenceScripts
+    coinsPerUtxoUnit <-
+      maybe
+        (Left $ AtKey "coinsPerUtxoByte or coinsPerUtxoWord" $ MissingValue)
+        pure
+        $ (CoinsPerUtxoByte <<< Coin <$> ps.coinsPerUtxoByte) <|>
+            (CoinsPerUtxoWord <<< Coin <$> ps.coinsPerUtxoWord)
     pure $ OgmiosProtocolParameters $ ProtocolParameters
-      { protocolVersion: ps.version.major /\ ps.version.minor
+      { protocolVersion: ps.protocolVersion.major /\ ps.protocolVersion.minor
       -- The following two parameters were removed from Babbage
       , decentralization: zero
       , extraPraosEntropy: Nothing
-      , maxBlockHeaderSize: ps.maxBlockHeaderSize.bytes
-      , maxBlockBodySize: ps.maxBlockBodySize.bytes
-      , maxTxSize: ps.maxTransactionSize.bytes
-      , txFeeFixed: ps.minFeeConstant.ada.lovelace
+      , maxBlockHeaderSize: ps.maxBlockHeaderSize
+      , maxBlockBodySize: ps.maxBlockBodySize
+      , maxTxSize: ps.maxTxSize
+      , txFeeFixed: ps.minFeeConstant
       , txFeePerByte: ps.minFeeCoefficient
-      , stakeAddressDeposit: Coin ps.stakeCredentialDeposit.ada.lovelace
-      , stakePoolDeposit: Coin ps.stakePoolDeposit.ada.lovelace
-      , minPoolCost: Coin ps.minStakePoolCost.ada.lovelace
-      , poolRetireMaxEpoch: Epoch ps.stakePoolRetirementEpochBound
-      , stakePoolTargetNum: ps.desiredNumberOfStakePools
-      , poolPledgeInfluence: unwrap ps.stakePoolPledgeInfluence
+      , stakeAddressDeposit: Coin ps.stakeKeyDeposit
+      , stakePoolDeposit: Coin ps.poolDeposit
+      , minPoolCost: Coin ps.minPoolCost
+      , poolRetireMaxEpoch: Epoch ps.poolRetirementEpochBound
+      , stakePoolTargetNum: ps.desiredNumberOfPools
+      , poolPledgeInfluence: unwrap ps.poolInfluence
       , monetaryExpansion: unwrap ps.monetaryExpansion
       , treasuryCut: unwrap ps.treasuryExpansion -- Rational
-      , coinsPerUtxoUnit: CoinsPerUtxoByte $ Coin ps.minUtxoDepositCoefficient
-      , costModels: Costmdls $ Map.fromFoldable
-          [ (PlutusV1 /\ wrap ps.plutusCostModels."plutus:v1")
-          , (PlutusV2 /\ wrap ps.plutusCostModels."plutus:v2")
+      , coinsPerUtxoUnit: coinsPerUtxoUnit
+      , costModels: Costmdls $ Map.fromFoldable $ catMaybes
+          [ pure
+              (PlutusV1 /\ convertPlutusV1CostModel ps.costModels."plutus:v1")
+          , (PlutusV2 /\ _) <<< convertPlutusV2CostModel <$>
+              ps.costModels."plutus:v2"
           ]
       , prices: prices
       , maxTxExUnits: decodeExUnits ps.maxExecutionUnitsPerTransaction
       , maxBlockExUnits: decodeExUnits ps.maxExecutionUnitsPerBlock
-      , maxValueSize: ps.maxValueSize.bytes
+      , maxValueSize: ps.maxValueSize
       , collateralPercent: ps.collateralPercentage
       , maxCollateralInputs: ps.maxCollateralInputs
-      , minFeeRefScriptBase: refScriptFee.base
-      , minFeeRefScriptRange: refScriptFee.range
-      , minFeeRefScriptMultiplier: refScriptFee.multiplier
+      , minFeeRefScriptBase: zero -- PLUTIP COMPATIBLE PRE CONWAY
+      , minFeeRefScriptRange: zero -- PLUTIP COMPATIBLE PRE CONWAY
+      , minFeeRefScriptMultiplier: one -- PLUTIP COMPATIBLE PRE CONWAY
       }
     where
     decodeExUnits
-      :: { memory :: BigInt, cpu :: BigInt } -> ExUnits
-    decodeExUnits { memory, cpu } = { mem: memory, steps: cpu }
+      :: { memory :: BigInt, steps :: BigInt } -> ExUnits
+    decodeExUnits { memory, steps } = { mem: memory, steps }
 
     decodePrices
       :: ProtocolParametersRaw -> Either JsonDecodeError ExUnitPrices
     decodePrices ps = note (TypeMismatch "ExUnitPrices") do
-      memPrice <- rationalToSubcoin ps.scriptExecutionPrices.memory
-      stepPrice <- rationalToSubcoin ps.scriptExecutionPrices.cpu
+      memPrice <- rationalToSubcoin ps.prices.memory
+      stepPrice <- rationalToSubcoin ps.prices.steps
       pure { memPrice, stepPrice } -- ExUnits
 
 ---------------- CHAIN TIP QUERY RESPONSE & PARSING
@@ -1009,22 +1032,9 @@ instance Show ChainTipQR where
   show = genericShow
 
 instance DecodeAeson ChainTipQR where
-  decodeAeson = aesonObject $ \o -> do
-    res <- getField o "result"
-
-    point res <|> origin res
-    where
-    point x = do
-      { slot, id } :: { slot :: Slot, id :: OgmiosBlockHeaderHash } <-
-        decodeAeson x
-      pure $ CtChainPoint $ { slot, hash: id }
-
-    origin =
-      aesonString
-        ( case _ of
-            "origin" -> pure $ CtChainOrigin $ ChainOrigin "origin"
-            s -> Left $ TypeMismatch $ "Expected value \"origin\", got " <> s
-        )
+  decodeAeson j = do
+    r :: (ChainOrigin |+| ChainPoint) <- decodeAeson j
+    pure $ either CtChainOrigin CtChainPoint $ toEither1 r
 
 -- | A Blake2b 32-byte digest of an era-independent block header, serialized as
 -- CBOR in base16
@@ -1081,49 +1091,42 @@ instance EncodeAeson AdditionalUtxoSet where
 
     encode :: (OgmiosTxOutRef /\ OgmiosTxOut) -> Aeson
     encode (inp /\ out) = encodeAeson $
-      { "transaction": { "id": inp.txId }
+      { "txId": inp.txId
       , "index": inp.index
-      , "address": out.address
-      , "datumHash": out.datumHash
-      , "datum": out.datum
-      , "script": encodeScriptRef <$> out.script
-      , "value": encodeValue out.value
       }
+        /\
+          { "address": out.address
+          , "datumHash": out.datumHash
+          , "datum": out.datum
+          , "script": encodeScriptRef <$> out.script
+          , "value":
+              { "coins": out.value # valueToCoin # getLovelace
+              , "assets": out.value # getNonAdaAsset # encodeNonAdaAsset
+              }
+          }
 
     encodeNativeScript :: NativeScript -> Aeson
-    encodeNativeScript (ScriptPubkey s) = encodeAeson
-      { clause: "signature", "from": s }
+    encodeNativeScript (ScriptPubkey s) = encodeAeson s
     encodeNativeScript (ScriptAll ss) =
-      encodeAeson { clause: "all", from: encodeNativeScript <$> ss }
+      encodeAeson { "all": encodeNativeScript <$> ss }
     encodeNativeScript (ScriptAny ss) =
-      encodeAeson { clause: "any", from: encodeNativeScript <$> ss }
+      encodeAeson { "any": encodeNativeScript <$> ss }
     encodeNativeScript (ScriptNOfK n ss) =
-      encodeAeson
-        { clause: "some"
-        , atLeast: BigInt.fromInt n
-        , from: encodeNativeScript <$> ss
-        }
-    encodeNativeScript (TimelockStart (Slot n)) = encodeAeson
-      { clause: "after", slot: n }
+      encodeAeson $
+        ForeignObject.singleton
+          (BigInt.toString $ BigInt.fromInt n)
+          (encodeNativeScript <$> ss)
+    encodeNativeScript (TimelockStart (Slot n)) = encodeAeson { "startsAt": n }
     encodeNativeScript (TimelockExpiry (Slot n)) = encodeAeson
-      { clause: "before", slot: n }
+      { "expiresAt": n }
 
     encodeScriptRef :: ScriptRef -> Aeson
     encodeScriptRef (NativeScriptRef s) =
-      encodeAeson
-        { "language": "native"
-        , json: encodeNativeScript s
-        }
+      encodeAeson { "native": encodeNativeScript s }
     encodeScriptRef (PlutusScriptRef (PlutusScript (s /\ PlutusV1))) =
-      encodeAeson
-        { "language": "plutus:v1"
-        , cbor: s
-        }
+      encodeAeson { "plutus:v1": s }
     encodeScriptRef (PlutusScriptRef (PlutusScript (s /\ PlutusV2))) =
-      encodeAeson
-        { "language": "plutus:v2"
-        , cbor: s
-        }
+      encodeAeson { "plutus:v2": s }
 
     encodeNonAdaAsset :: NonAdaAsset -> Aeson
     encodeNonAdaAsset assets = encodeMap $
@@ -1139,37 +1142,6 @@ instance EncodeAeson AdditionalUtxoSet where
         cs' = getCurrencySymbol cs
         csHex = byteArrayToHex cs'
         tnHex = byteArrayToHex tn'
-
-    encodeValue :: Value -> Aeson
-    encodeValue val =
-      encodeAeson $ Object.union ada foo
-      where
-      ada :: Object (Object BigInt)
-      ada = Object.singleton "ada"
-        (Object.singleton "lovelace" $ val # valueToCoin # getLovelace)
-
-      foo :: Object (Object BigInt)
-      foo =
-        foldl
-          ( \m (cs /\ tn /\ n) ->
-              let
-                cs' = getCurrencySymbol cs
-                tn' = getTokenName tn
-                csHex = byteArrayToHex cs'
-                tnHex = byteArrayToHex tn'
-              in
-                Object.alter
-                  ( case _ of
-                      Nothing -> Just $ Object.singleton tnHex n
-                      Just tm' -> Just $ Object.union tm' $ Object.singleton
-                        tnHex
-                        n
-                  )
-                  csHex
-                  m
-          )
-          (Object.empty :: Object (Object BigInt))
-          (flattenNonAdaValue $ getNonAdaAsset val)
 
 ---------------- UTXO QUERY RESPONSE & PARSING
 

@@ -74,7 +74,7 @@ import Ctl.Internal.Types.ByteArray (ByteArray)
 import Ctl.Internal.Types.RedeemerTag as Tag
 import Data.Foldable (class Foldable)
 import Data.Foldable as Foldable
-import Data.Maybe (Maybe(..), maybe)
+import Data.Maybe (Maybe(Just, Nothing), maybe)
 import Data.Traversable (for_, traverse, traverse_)
 import Data.Tuple.Nested ((/\))
 import Effect (Effect)
