@@ -219,7 +219,7 @@ getRedeemersExUnits
   -> Maybe (Array Redeemer)
 getRedeemersExUnits (Ogmios.TxEvaluationResult result) redeemers = do
   for redeemers \indexedRedeemer -> do
-    { memory, cpu } <- Map.lookup
+    { memory, steps } <- Map.lookup
       { redeemerTag: (unwrap indexedRedeemer).tag
       , redeemerIndex: Natural.fromInt' (unwrap indexedRedeemer).index
       }
@@ -227,6 +227,6 @@ getRedeemersExUnits (Ogmios.TxEvaluationResult result) redeemers = do
     pure $ Redeemer $ (unwrap $ indexedRedeemerToRedeemer indexedRedeemer)
       { exUnits =
           { mem: Natural.toBigInt memory
-          , steps: Natural.toBigInt cpu
+          , steps: Natural.toBigInt steps
           }
       }

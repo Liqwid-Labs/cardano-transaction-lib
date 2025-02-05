@@ -24,7 +24,6 @@ import Ctl.Internal.Cardano.Types.Transaction
 import Ctl.Internal.Cardano.Types.Value (Coin)
 import Ctl.Internal.Contract (getProtocolParameters)
 import Ctl.Internal.Contract.Monad (Contract)
-import Ctl.Internal.ProcessConstraints.State (_refScriptsUtxoMap)
 import Ctl.Internal.Serialization.Address
   ( addressPaymentCred
   , addressStakeCred
@@ -32,7 +31,6 @@ import Ctl.Internal.Serialization.Address
   , stakeCredentialToKeyHash
   )
 import Ctl.Internal.Serialization.MinFee (calculateMinFeeCsl)
-import Ctl.Internal.Types.ByteArray (ByteArray(..))
 import Ctl.Internal.Types.RewardAddress (unRewardAddress)
 import Data.Array (mapMaybe)
 import Data.Array as Array

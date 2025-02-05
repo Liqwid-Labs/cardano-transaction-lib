@@ -215,8 +215,8 @@ import Ctl.Internal.Types.TypedTxOut
   , typedTxOutTxOut
   )
 import Ctl.Internal.Types.TypedValidator (class DatumType, class ValidatorTypes)
-import Data.Array (cons, elem, singleton, snoc, (:)) as Array
 import Data.Array (cons, partition, toUnfoldable, zip)
+import Data.Array (elem, singleton, snoc, (:)) as Array
 import Data.Bifunctor (lmap)
 import Data.Either (Either(Left, Right), either, hush, isRight, note)
 import Data.Foldable (foldM)

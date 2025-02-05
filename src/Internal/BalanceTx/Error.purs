@@ -235,11 +235,11 @@ printTxEvaluationFailure transaction e =
       ("Non script input referenced by redeemer: " <> show txIn)
     Ogmios.IllFormedExecutionBudget Nothing -> line
       ("Ill formed execution budget: Execution budget missing")
-    Ogmios.IllFormedExecutionBudget (Just { memory, cpu }) ->
+    Ogmios.IllFormedExecutionBudget (Just { memory, steps }) ->
       line "Ill formed execution budget:"
         <> bullet
           ( line ("Memory: " <> BigInt.toString (Natural.toBigInt memory))
-              <> line ("Steps: " <> BigInt.toString (Natural.toBigInt cpu))
+              <> line ("Steps: " <> BigInt.toString (Natural.toBigInt steps))
           )
     Ogmios.NoCostModelForLanguage language -> line
       ("No cost model for language \"" <> language <> "\"")
